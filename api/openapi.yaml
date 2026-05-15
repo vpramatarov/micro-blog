@@ -1,0 +1,527 @@
+openapi: 3.0.3
+
+info:
+  title: Micro-Blog API
+  version: 0.1.0
+  description: |
+    Authenticated markdown micro-blog with a built-in URL shortener.
+    Dual-token JWT (15min access + 7d refresh-cookie); RBAC enforced by a
+    centralized permission/scope matrix.
+
+servers:
+  - url: http://localhost:8090
+    description: Local dev (PORT from .env)
+
+tags:
+  - name: public
+    description: Read-only / unauthenticated endpoints.
+  - name: auth
+    description: Register / login / refresh / logout.
+  - name: profile
+    description: Self-service /api/me (any authenticated role).
+  - name: admin-users
+    description: Admin-only user management.
+  - name: docs
+    description: OpenAPI spec and Swagger UI.
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from /auth/login or /auth/refresh.
+    RefreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: HttpOnly refresh token cookie issued by /auth/login.
+
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      description: Numeric primary key.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    PathCode:
+      name: code
+      in: path
+      required: true
+      description: Hashid (≥6-char opaque string) encoding the row's numeric id.
+      schema:
+        type: string
+        minLength: 1
+    QueryPage:
+      name: page
+      in: query
+      required: false
+      description: 1-indexed page number. Defaults to 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    QueryPerPage:
+      name: per_page
+      in: query
+      required: false
+      description: |
+        Rows per page. Defaults to 50; values above 200 are clamped to 200.
+        Non-numeric or non-positive values return 400 `invalid_pagination`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid_input
+          description: Machine-readable error code.
+        message:
+          type: string
+          example: validation failed
+          description: Human-readable detail (optional).
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            username: must be at least 3 characters
+            email: is not a valid email
+          description: |
+            Per-field validation messages, present only on `invalid_input`
+            responses where one or more fields failed validation. Each value
+            is a single human-readable message for that field.
+
+    User:
+      type: object
+      required: [id, username, email, role_id, role]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        username: { type: string, example: alice }
+        email: { type: string, format: email, example: alice@example.com }
+        role_id: { type: integer, format: int64, example: 3 }
+        role: { type: string, example: Author }
+
+    PageMeta:
+      type: object
+      required: [page, per_page, total]
+      description: Wrapper for all paginated list responses.
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        per_page:
+          type: integer
+          minimum: 1
+          maximum: 200
+          example: 50
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of rows that match the filter (not just this page).
+          example: 137
+
+    PaginatedUsers:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/User' }
+    PaginatedPosts:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Post' }
+    PaginatedShortLinks:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ShortLink' }
+
+    TokenResponse:
+      type: object
+      required: [access_token, user]
+      properties:
+        access_token:
+          type: string
+          description: 'JWT access token; pass as `Authorization: Bearer <token>`.'
+        user: { $ref: '#/components/schemas/User' }
+
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username: { type: string, example: alice }
+        email: { type: string, format: email, example: alice@example.com }
+        password: { type: string, format: password, minLength: 8, example: hunter2hunter2 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    UserCreateRequest:
+      type: object
+      required: [username, email, password, role_id]
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        role_id:
+          type: integer
+          format: int64
+          enum: [1, 2, 3, 4]
+          description: 1=Admin, 2=Editor, 3=Author, 4=Subscriber
+
+    UserUpdateRequest:
+      type: object
+      description: Partial update; any omitted field stays unchanged.
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        role_id:
+          type: integer
+          format: int64
+          enum: [1, 2, 3, 4]
+
+    MeUpdateRequest:
+      type: object
+      description: |
+        Partial profile update. `role_id` is intentionally **not** a property —
+        even if a client sends it the server ignores it (no privilege escalation
+        via /api/me).
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+
+  responses:
+    BadRequest:
+      description: Bad request — invalid body or input.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Authentication required or token invalid/expired.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not permitted.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Uniqueness constraint violation (username/email).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+paths:
+  /:
+    get:
+      tags: [public]
+      operationId: home
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Service liveness ping.
+      security: []
+      responses:
+        '200':
+          description: Empty JSON object.
+          content:
+            application/json:
+              schema: { type: object }
+
+
+  /openapi.yaml:
+    get:
+      tags: [docs]
+      operationId: getOpenAPIYAML
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: This OpenAPI spec, in YAML.
+      security: []
+      responses:
+        '200':
+          description: Raw YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /openapi.json:
+    get:
+      tags: [docs]
+      operationId: getOpenAPIJSON
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: This OpenAPI spec, in JSON.
+      security: []
+      responses:
+        '200':
+          description: Spec as JSON.
+          content:
+            application/json:
+              schema: { type: object }
+
+  /docs:
+    get:
+      tags: [docs]
+      operationId: getDocsUI
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Swagger UI rendering /openapi.json.
+      security: []
+      responses:
+        '200':
+          description: HTML page.
+          content:
+            text/html: { schema: { type: string } }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Create a new account (defaults to Subscriber role).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Exchange credentials for an access token + refresh cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Access token in body; refresh token set as HttpOnly cookie.
+          headers:
+            Set-Cookie:
+              description: |
+                `refresh_token=<opaque>; HttpOnly; Path=/auth; SameSite=Strict;
+                Max-Age=<JWT_REFRESH_TTL>` (Secure when COOKIE_SECURE=true).
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Rotate the refresh cookie and issue a new access token.
+      description: |
+        Reads the refresh_token cookie, deletes the old row server-side,
+        inserts a new one, and sets a fresh cookie. Replaying the previous
+        cookie returns 401.
+      security:
+        - RefreshCookie: []
+      responses:
+        '200':
+          description: New access token; new refresh cookie set.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Revoke the refresh token and clear the cookie.
+      security:
+        - RefreshCookie: []
+      responses:
+        '204':
+          description: Cookie cleared; refresh row removed if present.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+
+  /api/me:
+    get:
+      tags: [profile]
+      operationId: getMe
+      x-roles: [Subscriber, Author, Editor, Admin]
+      summary: Read the authenticated user's profile.
+      responses:
+        '200':
+          description: The caller's user row.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [profile]
+      operationId: updateMe
+      x-roles: [Subscriber, Author, Editor, Admin]
+      summary: Change own username / email / password.
+      description: |
+        `role_id` is silently ignored if present in the body — self-service
+        cannot escalate or demote.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MeUpdateRequest' }
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/users:
+    get:
+      tags: [admin-users]
+      operationId: listUsers
+      x-roles: [Admin]
+      summary: List all users. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
+      responses:
+        '200':
+          description: Paginated users (password_hash never included).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedUsers' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin-users]
+      operationId: createUser
+      x-roles: [Admin]
+      summary: Create a user with an explicit role. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreateRequest' }
+      responses:
+        '201':
+          description: Created user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/users/{id}:
+    get:
+      tags: [admin-users]
+      operationId: getUser
+      x-roles: [Admin]
+      summary: Read a user. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [admin-users]
+      operationId: updateUser
+      x-roles: [Admin]
+      summary: Partial update of any field (incl. role_id). Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdateRequest' }
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [admin-users]
+      operationId: deleteUser
+      x-roles: [Admin]
+      summary: Delete a user. Admin only; cannot delete self.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      responses:
+        '204': { description: Deleted. }
+        '400':
+          description: Refused — Admins cannot delete themselves.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }

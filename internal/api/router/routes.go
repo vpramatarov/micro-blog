@@ -1,0 +1,149 @@
+package router
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	"github.com/vpramatarov/micro-blog/internal/api/httpx"
+)
+
+// Services bundles the per-feature handler services the router mounts. Every
+// field is a concrete pointer — the router calls method names directly, so
+// nil is only acceptable on services whose routes are not exercised by the
+// caller (tests that, e.g., only hit /docs may pass nil for the others).
+type Services struct {
+	Auth  *auth.Service
+	Users *users.Service
+	Docs  *docs.Service
+}
+
+// Middlewares bundles the route-scoped middleware the router needs to mount on
+// specific groups, plus the global chain that runs on every request. Each of
+// Auth / Bouncer / RequireAdmin may be nil — the router skips a nil entry,
+// which lets tests opt out of middleware they don't care about.
+type Middlewares struct {
+	// Auth gates /api/* and /admin/*. Parses the Bearer token and injects claims into the request context.
+	Auth func(http.Handler) http.Handler
+
+	// Bouncer enforces the centralized permission/scope matrix. Mounted on subgroups within /api/* and /admin/* that need matrix-gated writes.
+	Bouncer func(http.Handler) http.Handler
+
+	// RequireAdmin is the simpler hard-role gate used by the Admin-only subtree (/admin/post/{id}, /admin/users/*).
+	RequireAdmin func(http.Handler) http.Handler
+
+	// Global runs on every request. Mounted in the order given via chi.
+	// Order matters (e.g. RequestID before RequestLogger so the log line can correlate by id).
+	Global []func(http.Handler) http.Handler
+}
+
+// Route groups:
+//   - /                                 public — Home
+//   - GET /posts                        public — list posts (every response item carries a hashid `code`)
+//   - GET /posts/{code}                 public — read a post by hashid; the only by-id-style read non-admins get
+//   - GET /s/{code}                     public — URL-shortener resolution; 302 to the stored original URL
+//   - GET /openapi.yaml,
+//     GET /openapi.json,
+//     GET /docs                         public — OpenAPI spec + Swagger UI
+//   - /auth/*                           public — register / login / refresh / logout
+//   - /api/*                            authenticated
+//   - GET  /api/me, PUT /api/me                 self-service profile (no role gate, no bouncer)
+//   - GET  /api/shortlinks                      handler-filtered list (Admin: all; others: own)
+//   - POST   /api/shortlinks,
+//   - PUT    /api/shortlinks/{id},
+//   - DELETE /api/shortlinks/{id}               bouncer-gated by shortlink:create/edit/delete
+//   - /admin/*                          authenticated; sub-policies below
+//   - GET /admin/posts              any authenticated user; Authors see only own posts
+//   - POST /admin/posts,
+//   - PUT /admin/posts/{id},
+//   - DELETE /admin/posts/{id}      bouncer-gated: Admin/Editor=all, Author=own, Subscriber=denied
+//   - GET /admin/post/{id}          Admin role only — numeric-id read
+//   - GET    /admin/users,
+//   - GET    /admin/users/{id},
+//   - POST   /admin/users,
+//   - PUT    /admin/users/{id},
+//   - DELETE /admin/users/{id}      Admin role only — user CRUD
+//   - /admin/roles/*,
+//   - /admin/permissions/*          Admin role only (future)
+func New(srvc Services, mw Middlewares) *chi.Mux {
+	r := chi.NewRouter()
+
+	for _, middleware := range mw.Global {
+		r.Use(middleware)
+	}
+
+	// Routes
+	r.Get("/", home)
+
+	// API documentation
+	// /openapi.yaml is the canonical spec;
+	// /openapi.json is the same content round-tripped through JSON; /docs renders Swagger UI pointing at /openapi.json.
+	r.Get("/openapi.yaml", srvc.Docs.ServeOpenAPIYAML)
+	r.Get("/openapi.json", srvc.Docs.ServeOpenAPIJSON)
+	r.Get("/docs", srvc.Docs.ServeDocs)
+
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/register", srvc.Auth.Register)
+		r.Post("/login", srvc.Auth.Login)
+		r.Post("/refresh", srvc.Auth.Refresh)
+		r.Post("/logout", srvc.Auth.Logout)
+	})
+
+	r.Route("/api", func(r chi.Router) {
+		if mw.Auth != nil {
+			r.Use(mw.Auth)
+		}
+
+		// Self-service profile — any authenticated user acts on their own row.
+		// Not bouncer-gated; the caller's id comes from the JWT, never from a URL param, so there's no scope check to perform.
+		r.Get("/me", srvc.Users.GetMe)
+		r.Put("/me", srvc.Users.UpdateMe)
+
+		// Permission/scope-gated routes go inside this group so unrelated endpoints (like /me, /shortlinks list) don't pay for a matrix lookup on every request.
+		r.Group(func(r chi.Router) {
+			if mw.Bouncer != nil {
+				r.Use(mw.Bouncer)
+			}
+			// TODO
+		})
+	})
+
+	r.Route("/admin", func(r chi.Router) {
+		if mw.Auth != nil {
+			r.Use(mw.Auth)
+		}
+
+		// Post writes — bouncer enforces post:create / post:edit / post:delete
+		// against the role's scope. Authors can only act on their own posts;
+		// Admin/Editor act on all; Subscriber is denied.
+		r.Group(func(r chi.Router) {
+			if mw.Bouncer != nil {
+				r.Use(mw.Bouncer)
+			}
+			// TODO;
+		})
+
+		// Admin-only subtree — by-id post read and user CRUD. Role and permission management will mount here too.
+		r.Group(func(r chi.Router) {
+			if mw.RequireAdmin != nil {
+				r.Use(mw.RequireAdmin)
+			}
+
+			r.Get("/users", srvc.Users.List)
+			r.Get("/users/{id}", srvc.Users.GetUser)
+			r.Post("/users", srvc.Users.Create)
+			r.Put("/users/{id}", srvc.Users.Update)
+			r.Delete("/users/{id}", srvc.Users.Delete)
+		})
+	})
+
+	return r
+}
+
+// home returns an empty JSON object — historically used by uptime checkers to
+// verify the server is reachable. Bodyless 200s confuse some tooling, so we keep returning `{}`.
+func home(w http.ResponseWriter, _ *http.Request) {
+	_ = httpx.WriteJSON(w, http.StatusOK, struct{}{})
+}

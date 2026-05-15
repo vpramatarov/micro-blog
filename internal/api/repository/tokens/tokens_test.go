@@ -1,0 +1,114 @@
+package tokens_test
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
+	"github.com/vpramatarov/micro-blog/internal/api/repository/users"
+	"github.com/vpramatarov/micro-blog/internal/testutil"
+)
+
+func TestMain(m *testing.M) {
+	if err := testutil.EnsureTestSchema(); err != nil {
+		fmt.Fprintf(os.Stderr, "prepare test schema: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(m.Run())
+}
+
+func TestRefreshTokenInsertFindDelete(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	usersRepo := users.New(db)
+	r := tokens.New(db)
+	ctx := t.Context()
+
+	userID, err := usersRepo.Create(ctx, "rt", "rt@example.com", "h", 4)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	exp := time.Now().Add(time.Hour)
+	if err := r.Insert(ctx, userID, "hash-1", exp); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	gotUserID, gotExp, err := r.FindOneByHash(ctx, "hash-1")
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+
+	if gotUserID != userID {
+		t.Errorf("user_id: got %d, want %d", gotUserID, userID)
+	}
+
+	if gotExp.Unix() != exp.UTC().Unix() {
+		t.Errorf("expires_at: got %v, want %v", gotExp, exp)
+	}
+
+	if err := r.Delete(ctx, "hash-1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if _, _, err := r.FindOneByHash(ctx, "hash-1"); !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Errorf("after delete: got %v, want ErrRefreshTokenNotFound", err)
+	}
+}
+
+func TestExpiredRefreshTokensPurgedOnFind(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	usersRepo := users.New(db)
+	r := tokens.New(db)
+	ctx := t.Context()
+
+	userID, err := usersRepo.Create(ctx, "purge", "purge@example.com", "h", 4)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// One expired, one live.
+	if err := r.Insert(ctx, userID, "expired", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("insert expired: %v", err)
+	}
+
+	if err := r.Insert(ctx, userID, "live", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("insert live: %v", err)
+	}
+
+	// Find against the live token; the side-effect purge should sweep the expired row.
+	if _, _, err := r.FindOneByHash(ctx, "live"); err != nil {
+		t.Fatalf("find live: %v", err)
+	}
+
+	if _, _, err := r.FindOneByHash(ctx, "expired"); !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Errorf("expected expired row purged, got err=%v", err)
+	}
+}
+
+func TestRefreshTokenCascadeOnUserDelete(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	usersRepo := users.New(db)
+	r := tokens.New(db)
+	ctx := t.Context()
+
+	userID, err := usersRepo.Create(ctx, "cascade", "cascade@example.com", "h", 4)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if err := r.Insert(ctx, userID, "hash-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+
+	if _, _, err := r.FindOneByHash(ctx, "hash-2"); !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Errorf("expected cascade delete to remove refresh token, got %v", err)
+	}
+}

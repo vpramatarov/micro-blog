@@ -1,0 +1,83 @@
+# --- Go build artifacts ---
+# Compiled binaries (project entry points + arbitrary builds)
+/server
+/server.exe
+/migrate
+/migrate.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries / coverage / profiling output
+*.test
+*.out
+coverage.txt
+coverage.html
+cpu.prof
+mem.prof
+
+# Go workspace + module cache
+go.work
+go.work.sum
+vendor/
+
+# --- Project-specific ---
+# Local SQLite databases (server + tests)
+*.db
+*.db-shm
+*.db-wal
+
+# .env files carry secrets — never commit
+.env
+.env.*
+!.env.example
+
+# --- Markdown in root: keep README.md only ---
+# Ignore every *.md in the repo root, then un-ignore README.md.
+/*.md
+!/README.md
+
+# --- Editors / IDEs ---
+# JetBrains (GoLand, IntelliJ, etc.)
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+Session.vim
+
+# Emacs
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Zed
+.zed/
+
+# --- OS junk ---
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
