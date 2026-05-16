@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 )
@@ -17,6 +18,7 @@ import (
 type Services struct {
 	Auth  *auth.Service
 	Users *users.Service
+	Posts *posts.Service
 	Docs  *docs.Service
 }
 
@@ -77,6 +79,11 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	// Routes
 	r.Get("/", home)
 
+	// Public post reads — no auth. Read-by-id is intentionally absent here;
+	// only the hashid-encoded `{code}` route exists publicly.
+	r.Get("/posts", srvc.Posts.List)
+	r.Get("/posts/{code}", srvc.Posts.GetByCode)
+
 	// API documentation
 	// /openapi.yaml is the canonical spec;
 	// /openapi.json is the same content round-tripped through JSON; /docs renders Swagger UI pointing at /openapi.json.
@@ -115,6 +122,9 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Use(mw.Auth)
 		}
 
+		// Authenticated list available to every role. ListAdmin filters the result set by role (Authors see only their own posts).
+		r.Get("/posts", srvc.Posts.ListAdmin)
+
 		// Post writes — bouncer enforces post:create / post:edit / post:delete
 		// against the role's scope. Authors can only act on their own posts;
 		// Admin/Editor act on all; Subscriber is denied.
@@ -122,7 +132,10 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			if mw.Bouncer != nil {
 				r.Use(mw.Bouncer)
 			}
-			// TODO;
+
+			r.Post("/posts", srvc.Posts.Create)
+			r.Put("/posts/{id}", srvc.Posts.Update)
+			r.Delete("/posts/{id}", srvc.Posts.Delete)
 		})
 
 		// Admin-only subtree — by-id post read and user CRUD. Role and permission management will mount here too.
@@ -131,6 +144,7 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 				r.Use(mw.RequireAdmin)
 			}
 
+			r.Get("/post/{id}", srvc.Posts.GetById)
 			r.Get("/users", srvc.Users.List)
 			r.Get("/users/{id}", srvc.Users.GetUser)
 			r.Post("/users", srvc.Users.Create)

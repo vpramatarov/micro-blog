@@ -19,6 +19,8 @@ tags:
     description: Register / login / refresh / logout.
   - name: profile
     description: Self-service /api/me (any authenticated role).
+  - name: posts
+    description: Post CRUD; bouncer-gated by post permissions.  
   - name: admin-users
     description: Admin-only user management.
   - name: docs
@@ -115,6 +117,21 @@ components:
         role_id: { type: integer, format: int64, example: 3 }
         role: { type: string, example: Author }
 
+    Post:
+      type: object
+      required: [id, author_id, title, markdown_content, html_content, created_at]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        code:
+          type: string
+          example: X7bL9q
+          description: Hashid of `id`; present on response, never sent on requests.
+        author_id: { type: integer, format: int64, example: 7 }
+        title: { type: string, example: "Hello world" }
+        markdown_content: { type: string, example: "# Hello\n\nworld" }
+        html_content: { type: string, example: "<h1>Hello</h1>\n<p>world</p>\n" }
+        created_at: { type: string, format: date-time }    
+
     PageMeta:
       type: object
       required: [page, per_page, total]
@@ -186,6 +203,16 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
+
+    PostWriteRequest:
+      type: object
+      required: [title, markdown_content]
+      properties:
+        title: { type: string, example: "Hello world" }
+        markdown_content:
+          type: string
+          example: "# Hello\n\nworld"
+          description: Source markdown. Rendered to `html_content` server-side.    
 
     UserCreateRequest:
       type: object
@@ -265,6 +292,43 @@ paths:
             application/json:
               schema: { type: object }
 
+  /posts:
+    get:
+      tags: [public, posts]
+      operationId: listPostsPublic
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: List published posts (public).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
+      responses:
+        '200':
+          description: Paginated posts, each carrying a hashid `code`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPosts' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /posts/{code}:
+    get:
+      tags: [public, posts]
+      operationId: getPostByCode
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Read a single post by its hashid.
+      description: |
+        The only by-id-style read available to non-admins. Numeric ids are
+        rejected — use `/admin/post/{id}` (Admin role required) for that.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PathCode'
+      responses:
+        '200':
+          description: The post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /openapi.yaml:
     get:
@@ -428,6 +492,99 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/posts:
+    get:
+      tags: [posts]
+      operationId: listPostsAdmin
+      x-roles: [Subscriber, Author, Editor, Admin]
+      summary: Authenticated list — Authors see only own posts; others see all.
+      parameters:
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
+      responses:
+        '200':
+          description: Paginated posts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPosts' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [posts]
+      operationId: createPost
+      x-roles: [Author, Editor, Admin]
+      summary: Create a post. Admin / Editor / Author allowed; Subscriber denied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostWriteRequest' }
+      responses:
+        '201':
+          description: Created post; `html_content` rendered from markdown.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/posts/{id}:
+    put:
+      tags: [posts]
+      operationId: updatePost
+      x-roles: [Author, Editor, Admin]
+      summary: Edit a post.
+      description: Admin / Editor edit any; Author edits own only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostWriteRequest' }
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [posts]
+      operationId: deletePost
+      x-roles: [Author, Editor, Admin]
+      summary: Delete a post.
+      description: Admin / Editor delete any; Author deletes own only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/post/{id}:
+    get:
+      tags: [posts]
+      operationId: getPostByIDAdmin
+      x-roles: [Admin]
+      summary: Read a post by numeric id. Admin role only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      responses:
+        '200':
+          description: The post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/users:
     get:

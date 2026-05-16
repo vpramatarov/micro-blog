@@ -9,10 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
@@ -36,6 +33,7 @@ func New(cfg *config.Config, usersRepo *usersRepo.Repo, rbacRepo *rbac.Repo, log
 	if log == nil {
 		log = slog.Default()
 	}
+
 	return &Service{Cfg: cfg, Users: usersRepo, RBAC: rbacRepo, Log: log}
 }
 
@@ -48,9 +46,11 @@ func validateRoleID(id int64) string {
 	if id == 0 {
 		return "is required"
 	}
+
 	if !validRoleIDs[id] {
 		return "must be one of 1, 2, 3, 4"
 	}
+
 	return ""
 }
 
@@ -74,26 +74,29 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
 	total, err := s.Users.Count(r.Context())
 	if err != nil {
 		s.Log.Error("count users", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list users")
 		return
 	}
+
 	users, err := s.Users.List(r.Context(), limit, offset)
 	if err != nil {
 		s.Log.Error("list users", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list users")
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, httpx.Page[usersRepo.User]{
+
+	httpx.WriteJSON(w, http.StatusOK, httpx.Page[usersRepo.User]{
 		Items: users, Page: page, PerPage: perPage, Total: total,
 	})
 }
 
 // GetUser — GET /admin/users/{id}. Admin only.
 func (s *Service) GetUser(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDParam(r)
+	id, err := httpx.ParseIDParam(r)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_id", "invalid user id")
 		return
@@ -111,7 +114,7 @@ func (s *Service) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = httpx.WriteJSON(w, http.StatusOK, user)
+	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
 // Create — POST /admin/users. Admin only.
@@ -140,6 +143,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create user")
 		return
 	}
+
 	if !exists {
 		httpx.WriteValidationError(w, map[string]string{"role_id": "does not exist"})
 		return
@@ -172,14 +176,15 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load user")
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusCreated, user)
+
+	httpx.WriteJSON(w, http.StatusCreated, user)
 }
 
 // Update — PUT /admin/users/{id}. Admin only. Partial update — any field
 // omitted from the body is left as-is. Sending `"password"` re-hashes and
 // replaces password_hash; the hash is never echoed in the response.
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDParam(r)
+	id, err := httpx.ParseIDParam(r)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_id", "invalid user id")
 		return
@@ -217,10 +222,12 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update user")
 			return
 		}
+
 		if !exists {
 			httpx.WriteValidationError(w, map[string]string{"role_id": "does not exist"})
 			return
 		}
+
 		update.RoleID = req.RoleID
 	}
 
@@ -234,6 +241,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 			s.Log.Error("update user", "err", err, "id", id)
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update user")
 		}
+
 		return
 	}
 
@@ -243,13 +251,14 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load user")
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, user)
+
+	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
 // Delete — DELETE /admin/users/{id}. Admin only. Refuses self-delete to
 // avoid an Admin locking themselves out.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDParam(r)
+	id, err := httpx.ParseIDParam(r)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_id", "invalid user id")
 		return
@@ -260,6 +269,7 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth")
 		return
 	}
+
 	if claims.UserID == id {
 		httpx.WriteError(w, http.StatusBadRequest, "self_delete", "admins cannot delete themselves")
 		return
@@ -270,13 +280,11 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "user not found")
 			return
 		}
+
 		s.Log.Error("delete user", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not delete user")
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
 
-func parseIDParam(r *http.Request) (int64, error) {
-	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	w.WriteHeader(http.StatusNoContent)
 }

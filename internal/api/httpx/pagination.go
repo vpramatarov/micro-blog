@@ -36,18 +36,23 @@ func ParsePagination(w http.ResponseWriter, r *http.Request) (limit, offset, pag
 			WriteError(w, http.StatusBadRequest, "invalid_pagination", "page must be a positive integer")
 			return 0, 0, 0, 0, false
 		}
+
 		page = v
 	}
+
 	if raw := r.URL.Query().Get("per_page"); raw != "" {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v < 1 {
 			WriteError(w, http.StatusBadRequest, "invalid_pagination", "per_page must be a positive integer")
 			return 0, 0, 0, 0, false
 		}
+
 		if v > MaxPerPage {
 			v = MaxPerPage
 		}
+
 		perPage = v
 	}
+
 	return perPage, (page - 1) * perPage, page, perPage, true
 }

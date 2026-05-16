@@ -11,6 +11,8 @@ import (
 
 	"github.com/vpramatarov/micro-blog/api"
 	authHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	docHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	userHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/config"
@@ -23,9 +25,11 @@ import (
 func buildRouter() *chi.Mux {
 	authSrvc := authHandler.New(&config.Config{}, nil, nil, nil, nil)
 	usersSrvc := userHandler.New(&config.Config{}, nil, nil, nil)
+	postsSrvc := postHandler.New(nil, nil, nil)
+	docSrvc := docHandler.New(nil, nil)
 
 	return router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Docs: docSrvc},
 		router.Middlewares{},
 	)
 }
@@ -138,8 +142,8 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	// Operations everyone can see (public + cookie-auth + docs).
 	public := []string{
 		"GET /",
-		// "GET /posts",
-		// "GET /posts/{code}",
+		"GET /posts",
+		"GET /posts/{code}",
 		// "GET /s/{code}",
 		"GET /openapi.yaml",
 		"GET /openapi.json",
@@ -155,7 +159,7 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 			"GET /api/me",
 			"PUT /api/me",
 			// "GET /api/shortlinks",
-			// "GET /admin/posts",
+			"GET /admin/posts",
 		}...,
 	)
 	// Plus content writes (Author/Editor/Admin).
@@ -164,14 +168,14 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 			// "POST /api/shortlinks",
 			// "PUT /api/shortlinks/{id}",
 			// "DELETE /api/shortlinks/{id}",
-			// "POST /admin/posts",
-			// "PUT /admin/posts/{id}",
-			// "DELETE /admin/posts/{id}",
+			"POST /admin/posts",
+			"PUT /admin/posts/{id}",
+			"DELETE /admin/posts/{id}",
 		}...,
 	)
 	// Plus admin-only (numeric-id post read + user CRUD).
 	admin := append(append([]string{}, contentWriter...),
-		// "GET /admin/post/{id}",
+		"GET /admin/post/{id}",
 		"GET /admin/users",
 		"POST /admin/users",
 		"GET /admin/users/{id}",

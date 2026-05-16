@@ -116,20 +116,19 @@ func (s *Service) audienceFor(r *http.Request) string {
 // ServeOpenAPIYAML — GET /openapi.yaml. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIYAML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
-	_, _ = w.Write(api.SpecYAMLByRole[s.audienceFor(r)])
+	w.Write(api.SpecYAMLByRole[s.audienceFor(r)])
 }
 
 // ServeOpenAPIJSON — GET /openapi.json. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(api.SpecJSONByRole[s.audienceFor(r)])
+	w.Write(api.SpecJSONByRole[s.audienceFor(r)])
 }
 
 // ServeDocs — GET /docs. Public.
 func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Inline JS is embedded in the binary; without this, a browser will happily
-	// keep serving the previous build's HTML after a redeploy.
+	// Inline JS is embedded in the binary; without this, a browser will happily keep serving the previous build's HTML after a redeploy.
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	// Override the strict default CSP from the SecurityHeaders middleware: the
 	// docs page legitimately loads CSS+JS from unpkg.com and runs an inline
@@ -141,5 +140,5 @@ func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 			"img-src 'self' data:; "+
 			"connect-src 'self'; "+
 			"frame-ancestors 'none'")
-	_, _ = w.Write([]byte(docsHTML))
+	w.Write([]byte(docsHTML))
 }

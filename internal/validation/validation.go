@@ -1,12 +1,10 @@
-// Package validation provides per-field validators returning human-readable
-// messages, plus a small accumulator (`Errors`) that handlers use to collect
-// every failed rule before responding. Empty string means "valid".
+// Package validation provides per-field validators returning human-readable messages,
+// plus a small accumulator (`Errors`) that handlers use to collect every failed rule before responding.
+// Empty string means "valid".
 //
-// The helpers each return only the FIRST violated rule for that field so
-// the response stays focused — clients get one message per field, not a
-// chain of overlapping ones. Order matters inside each helper: more
-// fundamental rules (required, length) before downstream ones (format,
-// charset).
+// The helpers each return only the FIRST violated rule for that field so the response stays focused —
+// clients get one message per field, not a chain of overlapping ones. Order matters inside each helper:
+// more fundamental rules (required, length) before downstream ones (format, charset).
 package validation
 
 import (
@@ -109,6 +107,35 @@ func ValidatePassword(s string) string {
 func PasswordOptional(s string) string {
 	if len(s) < PasswordMinLen {
 		return "must be at least 8 characters"
+	}
+
+	return ""
+}
+
+// Title: required, [min: 3, max: 200] chars. Trimmed.
+func Title(s string) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "is required"
+	case len(s) < TitleMinLen:
+		return "must be at least 3 characters"
+	case len(s) > TitleMaxLen:
+		return "must be at most 200 characters"
+	}
+
+	return ""
+}
+
+// MarkdownContent: required, ≥10 chars after trim.
+func MarkdownContent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "is required"
+	}
+
+	if len(s) < MarkdownMinLen {
+		return "must be at least 10 characters"
 	}
 
 	return ""

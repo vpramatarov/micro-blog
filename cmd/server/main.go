@@ -18,17 +18,20 @@ import (
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authMW "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	observabilityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/observability"
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	securityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/security"
+	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
 	userRepository "github.com/vpramatarov/micro-blog/internal/api/repository/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
+	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	_ "modernc.org/sqlite"
 )
 
@@ -58,14 +61,21 @@ func main() {
 	usersRepo := userRepository.New(db)
 	rbacRepo := rbacRepository.New(db)
 	tokensRepo := tokens.New(db)
+	postsRepo := postRepository.New(db)
 
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
 		Issuer:   cfg.JWTIssuer,
 		Audience: cfg.JWTAudience,
 	})
 
+	encoder, err := shortcode.New()
+	if err != nil {
+		log.Fatalf("init shortcode encoder: %v", err)
+	}
+
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, logger)
+	postsSrvc := postService.New(postsRepo, encoder, logger)
 	docsSrvc := docsService.New(issuer, logger)
 
 	// Mountable middlewares.
@@ -76,6 +86,7 @@ func main() {
 		router.Services{
 			Auth:  authSrvc,
 			Users: usersSrvc,
+			Posts: postsSrvc,
 			Docs:  docsSrvc,
 		},
 		router.Middlewares{

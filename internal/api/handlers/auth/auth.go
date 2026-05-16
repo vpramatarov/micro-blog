@@ -205,7 +205,7 @@ func (s *Service) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = httpx.WriteJSON(w, http.StatusOK, tokenResponse{
+	httpx.WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: access,
 		User: userView{
 			ID: u.ID, Username: u.Username, Email: u.Email, Role: u.RoleName,

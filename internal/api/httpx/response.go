@@ -8,6 +8,9 @@ package httpx
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // errorBody is the unified error envelope. `Fields` is populated only by
@@ -51,4 +54,8 @@ func WriteValidationError(w http.ResponseWriter, fields map[string]string) {
 // able to detect the refactor by sniffing 403 response bodies.
 func WriteForbidden(w http.ResponseWriter) {
 	_ = WriteJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+}
+
+func ParseIDParam(r *http.Request) (int64, error) {
+	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 }

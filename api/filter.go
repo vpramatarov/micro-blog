@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"slices"
 
 	"sigs.k8s.io/yaml"
 )
@@ -28,6 +29,7 @@ func filterByRole(src []byte, role string) ([]byte, error) {
 			if !isHTTPMethod(method) {
 				continue
 			}
+
 			opObj, ok := op.(map[string]any)
 			if !ok {
 				continue
@@ -97,11 +99,5 @@ func extractRoles(op map[string]any) ([]string, bool) {
 }
 
 func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(haystack, needle)
 }
