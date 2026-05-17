@@ -59,6 +59,19 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 	return &post, nil
 }
 
+// GetOwnerID is the bouncer's ownership lookup for post:* actions with scope='own'.
+// Returns ErrPostNotFound when the post does not exist so the caller can map it to 404.
+func (r *Repo) GetOwnerID(ctx context.Context, postID int64) (int64, error) {
+	q := fmt.Sprintf(`SELECT author_id FROM %s WHERE id = ?`, DB_TABLE)
+	var ownerID int64
+	err := r.db.QueryRowContext(ctx, q, postID).Scan(&ownerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrPostNotFound
+	}
+
+	return ownerID, err
+}
+
 func (r *Repo) Create(ctx context.Context, authorID int64, title, markdown, html string) (int64, error) {
 	q := fmt.Sprintf("INSERT INTO %s (author_id, title, markdown_content, html_content) VALUES (?, ?, ?, ?);", DB_TABLE)
 	res, err := r.db.ExecContext(ctx, q, authorID, title, markdown, html)

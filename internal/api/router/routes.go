@@ -7,6 +7,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 )
@@ -16,10 +17,11 @@ import (
 // nil is only acceptable on services whose routes are not exercised by the
 // caller (tests that, e.g., only hit /docs may pass nil for the others).
 type Services struct {
-	Auth  *auth.Service
-	Users *users.Service
-	Posts *posts.Service
-	Docs  *docs.Service
+	Auth       *auth.Service
+	Users      *users.Service
+	ShortLinks *shortlinks.Service
+	Posts      *posts.Service
+	Docs       *docs.Service
 }
 
 // Middlewares bundles the route-scoped middleware the router needs to mount on
@@ -84,6 +86,9 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	r.Get("/posts", srvc.Posts.List)
 	r.Get("/posts/{code}", srvc.Posts.GetByCode)
 
+	// Public URL-shortener resolution. Decodes the hashid back to a row and 302-redirects to the original URL.
+	r.Get("/s/{code}", srvc.ShortLinks.Resolve)
+
 	// API documentation
 	// /openapi.yaml is the canonical spec;
 	// /openapi.json is the same content round-tripped through JSON; /docs renders Swagger UI pointing at /openapi.json.
@@ -108,12 +113,19 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 		r.Get("/me", srvc.Users.GetMe)
 		r.Put("/me", srvc.Users.UpdateMe)
 
+		// Short-link list — handler-filtered (Admin sees all, everyone else  sees only their own).
+		// Lives outside the bouncer subgroup because the filter is role-based at the handler, not matrix-gated.
+		r.Get("/shortlinks", srvc.ShortLinks.List)
+
 		// Permission/scope-gated routes go inside this group so unrelated endpoints (like /me, /shortlinks list) don't pay for a matrix lookup on every request.
 		r.Group(func(r chi.Router) {
 			if mw.Bouncer != nil {
 				r.Use(mw.Bouncer)
 			}
-			// TODO
+
+			r.Post("/shortlinks", srvc.ShortLinks.Create)
+			r.Put("/shortlinks/{id}", srvc.ShortLinks.Update)
+			r.Delete("/shortlinks/{id}", srvc.ShortLinks.Delete)
 		})
 	})
 

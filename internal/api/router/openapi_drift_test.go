@@ -13,6 +13,7 @@ import (
 	authHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	docHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	shortLinksHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	userHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/config"
@@ -27,21 +28,20 @@ func buildRouter() *chi.Mux {
 	usersSrvc := userHandler.New(&config.Config{}, nil, nil, nil)
 	postsSrvc := postHandler.New(nil, nil, nil)
 	docSrvc := docHandler.New(nil, nil)
+	shortLinksSrvc := shortLinksHandler.New(nil, nil, nil)
 
 	return router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Docs: docSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, ShortLinks: shortLinksSrvc, Docs: docSrvc},
 		router.Middlewares{},
 	)
 }
 
 // TestOpenAPISpecCoversEveryRoute is a drift guard: every (method, pattern)
 // registered in the chi tree must appear in api/openapi.yaml. Adding a new
-// route without a matching spec entry fails this test, which is the whole
-// reason hand-writing the spec is viable.
+// route without a matching spec entry fails this test, which is the whole reason hand-writing the spec is viable.
 //
 // The reverse direction (spec entries with no matching route) is intentionally
-// not asserted — the spec can legitimately describe deprecated paths during
-// a transition.
+// not asserted — the spec can legitimately describe deprecated paths during a transition.
 func TestOpenAPISpecCoversEveryRoute(t *testing.T) {
 	r := buildRouter()
 
@@ -112,6 +112,7 @@ func TestOpenAPIOperationsHaveValidRoles(t *testing.T) {
 			if !validMethods[strings.ToLower(method)] {
 				continue
 			}
+
 			var op struct {
 				XRoles []string `json:"x-roles"`
 			}
@@ -144,7 +145,7 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		"GET /",
 		"GET /posts",
 		"GET /posts/{code}",
-		// "GET /s/{code}",
+		"GET /s/{code}",
 		"GET /openapi.yaml",
 		"GET /openapi.json",
 		"GET /docs",
@@ -158,16 +159,16 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		[]string{
 			"GET /api/me",
 			"PUT /api/me",
-			// "GET /api/shortlinks",
+			"GET /api/shortlinks",
 			"GET /admin/posts",
 		}...,
 	)
 	// Plus content writes (Author/Editor/Admin).
 	contentWriter := append(append([]string{}, anyAuth...),
 		[]string{
-			// "POST /api/shortlinks",
-			// "PUT /api/shortlinks/{id}",
-			// "DELETE /api/shortlinks/{id}",
+			"POST /api/shortlinks",
+			"PUT /api/shortlinks/{id}",
+			"DELETE /api/shortlinks/{id}",
 			"POST /admin/posts",
 			"PUT /admin/posts/{id}",
 			"DELETE /admin/posts/{id}",

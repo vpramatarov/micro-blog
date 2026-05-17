@@ -20,7 +20,9 @@ tags:
   - name: profile
     description: Self-service /api/me (any authenticated role).
   - name: posts
-    description: Post CRUD; bouncer-gated by post permissions.  
+    description: Post CRUD; bouncer-gated by post permissions.
+  - name: shortlinks
+    description: URL shortener; public hashid resolution + authenticated CRUD.
   - name: admin-users
     description: Admin-only user management.
   - name: docs
@@ -130,7 +132,20 @@ components:
         title: { type: string, example: "Hello world" }
         markdown_content: { type: string, example: "# Hello\n\nworld" }
         html_content: { type: string, example: "<h1>Hello</h1>\n<p>world</p>\n" }
-        created_at: { type: string, format: date-time }    
+        created_at: { type: string, format: date-time }
+
+    ShortLink:
+      type: object
+      required: [id, user_id, original_url, created_at]
+      properties:
+        id: { type: integer, format: int64, example: 8 }
+        code:
+          type: string
+          example: X7bL9q
+          description: Hashid of `id`; share `https://host/s/{code}` to redirect.
+        user_id: { type: integer, format: int64, example: 7 }
+        original_url: { type: string, format: uri, example: "https://example.com/page" }
+        created_at: { type: string, format: date-time }
 
     PageMeta:
       type: object
@@ -212,7 +227,17 @@ components:
         markdown_content:
           type: string
           example: "# Hello\n\nworld"
-          description: Source markdown. Rendered to `html_content` server-side.    
+          description: Source markdown. Rendered to `html_content` server-side.
+
+    ShortLinkWriteRequest:
+      type: object
+      required: [original_url]
+      properties:
+        original_url:
+          type: string
+          format: uri
+          example: "https://example.com/page"
+          description: Must use http or https and include a host.
 
     UserCreateRequest:
       type: object
@@ -328,6 +353,24 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Post' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /s/{code}:
+    get:
+      tags: [public, shortlinks]
+      operationId: resolveShortLink
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Decode a hashid and redirect to the stored URL.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PathCode'
+      responses:
+        '302':
+          description: Redirect to the original URL.
+          headers:
+            Location:
+              description: Original URL stored against this code.
+              schema: { type: string, format: uri }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /openapi.yaml:
@@ -492,6 +535,81 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/shortlinks:
+    get:
+      tags: [shortlinks]
+      operationId: listShortLinks
+      x-roles: [Subscriber, Author, Editor, Admin]
+      summary: List short links — Admin sees all; everyone else sees own only.
+      parameters:
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
+      responses:
+        '200':
+          description: Paginated short links.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedShortLinks' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [shortlinks]
+      operationId: createShortLink
+      x-roles: [Author, Editor, Admin]
+      summary: Create a short link (requires shortlink:create — Subscribers denied).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShortLinkWriteRequest' }
+      responses:
+        '201':
+          description: Short link created. Use `code` as `/s/{code}`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShortLink' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/shortlinks/{id}:
+    put:
+      tags: [shortlinks]
+      operationId: updateShortLink
+      x-roles: [Author, Editor, Admin]
+      summary: Update a short link's target URL.
+      description: Admin can edit any; Editor/Author can edit own only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShortLinkWriteRequest' }
+      responses:
+        '200':
+          description: Updated short link.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShortLink' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [shortlinks]
+      operationId: deleteShortLink
+      x-roles: [Author, Editor, Admin]
+      summary: Delete a short link.
+      description: Admin can delete any; Editor/Author can delete own only.
+      parameters:
+        - $ref: '#/components/parameters/PathID'
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/posts:
     get:
