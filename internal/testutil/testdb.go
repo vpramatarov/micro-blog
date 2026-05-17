@@ -17,8 +17,8 @@ import (
 // children appear before their parents. SetupTestDB deletes rows in this order
 // between tests, and schema tests can iterate it to assert each table exists.
 var TableNames = []string{
-	// "short_links",
-	// "posts",
+	"short_links",
+	"posts",
 	"refresh_tokens",
 	"role_permissions",
 	"users",
@@ -29,11 +29,10 @@ var TableNames = []string{
 // wipeTableNames is the subset of TableNames that wipeTables actually clears
 // between tests. roles, permissions and role_permissions are seeded by
 // migration 00004 and treated as reference data — leaving them in place keeps
-// the test DB consistent with production after the per-binary DownTo 0 -> Up
-// cycle.
+// the test DB consistent with production after the per-binary DownTo 0 -> Up cycle.
 var wipeTableNames = []string{
-	// "short_links",
-	// "posts",
+	"short_links",
+	"posts",
 	"refresh_tokens",
 	"users",
 }
@@ -93,12 +92,12 @@ var (
 )
 
 // EnsureTestSchema brings the shared test DB to the latest schema. Idempotent
-// across calls within the same test binary, and safe to call from TestMain
-// (no *testing.T required).
+// across calls within the same test binary, and safe to call from TestMain (no *testing.T required).
 func EnsureTestSchema() error {
 	migrateOnce.Do(func() {
 		migrateErr = migrateTestDB()
 	})
+
 	return migrateErr
 }
 
@@ -131,8 +130,8 @@ func migrateTestDB() error {
 	return nil
 }
 
-// SetupTestDB ensures the schema is current, wipes all rows, and returns a
-// fresh connection. The connection is closed automatically at test cleanup.
+// SetupTestDB ensures the schema is current, wipes all rows, and returns a fresh connection.
+// The connection is closed automatically at test cleanup.
 func SetupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 

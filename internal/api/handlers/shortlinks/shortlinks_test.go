@@ -91,8 +91,8 @@ func setupShortLinkEnv(t *testing.T) *shortLinkEnv {
 	r := router.New(
 		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc},
 		router.Middlewares{
-			Auth: authmw.Authenticate(issuer, nil),
-			// Bouncer:      rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
+			Auth:         authmw.Authenticate(issuer, nil),
+			Bouncer:      rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
 			RequireAdmin: rbacmw.RequireRole("Admin", nil),
 		},
 	)

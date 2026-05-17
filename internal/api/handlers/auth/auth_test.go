@@ -14,8 +14,13 @@ import (
 	"time"
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	shortLinksService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	postsRepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
+	shortLinksRepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
 	tokensRepo "github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
 	usersRepo "github.com/vpramatarov/micro-blog/internal/api/repository/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
@@ -39,6 +44,9 @@ func newTestServer(t *testing.T) *httptest.Server {
 	usersRepo := usersRepo.New(db)
 	tokensRepo := tokensRepo.New(db)
 	rbacRepo := rbacRepo.New(db)
+	postsRepo := postsRepo.New(db)
+	slRepo := shortLinksRepo.New(db)
+
 	cfg := &config.Config{
 		JWTSecret:     "test-secret",
 		JWTAccessTTL:  5 * time.Minute,
@@ -49,8 +57,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{})
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, nil)
+	shortLinksSrvc := shortLinksService.New(slRepo, nil, nil)
+	postsSrvc := postService.New(postsRepo, nil, nil)
+	docsSrvc := docsService.New(issuer, nil)
 	r := router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, ShortLinks: shortLinksSrvc, Docs: docsSrvc},
 		router.Middlewares{},
 	)
 
