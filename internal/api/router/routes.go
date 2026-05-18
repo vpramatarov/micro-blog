@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
@@ -21,6 +22,7 @@ type Services struct {
 	Users      *users.Service
 	ShortLinks *shortlinks.Service
 	Posts      *posts.Service
+	Categories *categories.Service
 	Docs       *docs.Service
 }
 
@@ -37,6 +39,10 @@ type Middlewares struct {
 
 	// RequireAdmin is the simpler hard-role gate used by the Admin-only subtree (/admin/post/{id}, /admin/users/*).
 	RequireAdmin func(http.Handler) http.Handler
+
+	// RequireEditorOrAdmin permits the Admin + Editor roles. Used by the /admin/categories and /admin/tags write groups —
+	// they have no ownership concept, so the Bouncer matrix is not the right gate.
+	RequireEditorOrAdmin func(http.Handler) http.Handler
 
 	// Global runs on every request. Mounted in the order given via chi.
 	// Order matters (e.g. RequestID before RequestLogger so the log line can correlate by id).
@@ -88,6 +94,9 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 
 	// Public URL-shortener resolution. Decodes the hashid back to a row and 302-redirects to the original URL.
 	r.Get("/s/{code}", srvc.ShortLinks.Resolve)
+
+	// Public taxonomy reads.
+	r.Get("/categories", srvc.Categories.List)
 
 	// API documentation
 	// /openapi.yaml is the canonical spec;
@@ -150,6 +159,18 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Delete("/posts/{id}", srvc.Posts.Delete)
 		})
 
+		// Categories / tags writes — Admin + Editor only. No ownership, so
+		// the Bouncer matrix is not the right gate; a flat role list is.
+		r.Group(func(r chi.Router) {
+			if mw.RequireEditorOrAdmin != nil {
+				r.Use(mw.RequireEditorOrAdmin)
+			}
+
+			r.Post("/categories", srvc.Categories.Create)
+			r.Put("/categories/{id}", srvc.Categories.Update)
+			r.Delete("/categories/{id}", srvc.Categories.Delete)
+		})
+
 		// Admin-only subtree — by-id post read and user CRUD. Role and permission management will mount here too.
 		r.Group(func(r chi.Router) {
 			if mw.RequireAdmin != nil {
@@ -171,5 +192,5 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 // home returns an empty JSON object — historically used by uptime checkers to
 // verify the server is reachable. Bodyless 200s confuse some tooling, so we keep returning `{}`.
 func home(w http.ResponseWriter, _ *http.Request) {
-	_ = httpx.WriteJSON(w, http.StatusOK, struct{}{})
+	httpx.WriteJSON(w, http.StatusOK, struct{}{})
 }

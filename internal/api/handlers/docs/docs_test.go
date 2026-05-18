@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
-	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
-	docService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
-	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	authh "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	docsh "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postsh "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	shortlinksh "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
+	usersh "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
@@ -22,11 +24,13 @@ import (
 func buildDocsRouter(t *testing.T, issuer *auth.Issuer) http.Handler {
 	t.Helper()
 	cfg := &config.Config{}
-	authSrvc := authService.New(cfg, nil, nil, nil, nil)
-	usersSrvc := userService.New(cfg, nil, nil, nil)
-	docsSrvc := docService.New(issuer, nil)
+	authSvc := authh.New(cfg, nil, nil, nil, nil)
+	usersSvc := usersh.New(cfg, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil)
+	shortlinksSvc := shortlinksh.New(nil, nil, nil)
+	docsSvc := docsh.New(issuer, nil)
 	return router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc, Docs: docsSrvc},
+		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc},
 		router.Middlewares{},
 	)
 }
@@ -145,7 +149,6 @@ func pathsIn(t *testing.T, raw []byte) map[string]bool {
 	var doc struct {
 		Paths map[string]any `json:"paths"`
 	}
-
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("decode spec: %v; body=%s", err, string(raw))
 	}

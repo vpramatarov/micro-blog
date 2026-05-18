@@ -11,6 +11,7 @@ import (
 
 	"github.com/vpramatarov/micro-blog/api"
 	authHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	categoryHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	docHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortLinksHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
@@ -26,12 +27,13 @@ import (
 func buildRouter() *chi.Mux {
 	authSrvc := authHandler.New(&config.Config{}, nil, nil, nil, nil)
 	usersSrvc := userHandler.New(&config.Config{}, nil, nil, nil)
-	postsSrvc := postHandler.New(nil, nil, nil)
+	categorySrvc := categoryHandler.New(nil, nil)
+	postsSrvc := postHandler.New(nil, nil, nil, nil)
 	docSrvc := docHandler.New(nil, nil)
 	shortLinksSrvc := shortLinksHandler.New(nil, nil, nil)
 
 	return router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, ShortLinks: shortLinksSrvc, Docs: docSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Categories: categorySrvc, ShortLinks: shortLinksSrvc, Docs: docSrvc},
 		router.Middlewares{},
 	)
 }

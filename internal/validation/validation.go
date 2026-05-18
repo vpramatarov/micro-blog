@@ -23,6 +23,8 @@ const (
 	TitleMinLen    = 3
 	TitleMaxLen    = 200
 	MarkdownMinLen = 10
+	NameMinLen     = 1
+	NameMaxLen     = 50
 )
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -160,5 +162,20 @@ func URL(raw string) string {
 	if u.Host == "" {
 		return "must include a host"
 	}
+	return ""
+}
+
+// Name: required, [1,50] chars after trim. Unicode-friendly — accepts "AI", "общи теми", "Front-end".
+func Name(s string) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "is required"
+	case len(s) < NameMinLen:
+		return "must be at least 1 character"
+	case len(s) > NameMaxLen:
+		return "must be at most 50 characters"
+	}
+
 	return ""
 }

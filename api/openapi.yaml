@@ -21,6 +21,8 @@ tags:
     description: Self-service /api/me (any authenticated role).
   - name: posts
     description: Post CRUD; bouncer-gated by post permissions.
+  - name: categories
+    description: Public read-only list; Admin/Editor writes under /admin/categories.  
   - name: shortlinks
     description: URL shortener; public hashid resolution + authenticated CRUD.
   - name: admin-users
@@ -194,6 +196,15 @@ components:
             items:
               type: array
               items: { $ref: '#/components/schemas/ShortLink' }
+    PaginatedCategories:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Category' }          
 
     TokenResponse:
       type: object
@@ -221,13 +232,27 @@ components:
 
     PostWriteRequest:
       type: object
-      required: [title, markdown_content]
+      required: [title, markdown_content, category_id]
       properties:
         title: { type: string, example: "Hello world" }
         markdown_content:
           type: string
           example: "# Hello\n\nworld"
           description: Source markdown. Rendered to `html_content` server-side.
+        category_id:
+          type: integer
+          format: int64
+          example: 2
+          description: Must point at an existing categories row.
+
+    CategoryWriteRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: Engineering
+          description: 1–50 characters after trimming. Must be unique.        
 
     ShortLinkWriteRequest:
       type: object
@@ -335,15 +360,37 @@ paths:
               schema: { $ref: '#/components/schemas/PaginatedPosts' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
-  /posts/{code}:
+  /posts/{slug}:
+    get:
+      tags: [public, posts]
+      operationId: getPostBySlug
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Read a single post by its slug.
+      description: |
+        Slugs are auto-generated from the title and stable for the life of
+        the post (unless the title changes, in which case a new slug is
+        derived and the old one stops resolving).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PathSlug'
+      responses:
+        '200':
+          description: The post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /p/{code}:
     get:
       tags: [public, posts]
       operationId: getPostByCode
       x-roles: [anonymous, Subscriber, Author, Editor, Admin]
       summary: Read a single post by its hashid.
       description: |
-        The only by-id-style read available to non-admins. Numeric ids are
-        rejected — use `/admin/post/{id}` (Admin role required) for that.
+        Alternate by-id-style read for callers that already hold a hashid
+        (e.g., from a previous list response's `code` field). Numeric ids
+        are rejected — use `/admin/post/{id}` (Admin role required) for that.
       security: []
       parameters:
         - $ref: '#/components/parameters/PathCode'
@@ -355,23 +402,23 @@ paths:
               schema: { $ref: '#/components/schemas/Post' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /s/{code}:
+  /categories:
     get:
-      tags: [public, shortlinks]
-      operationId: resolveShortLink
+      tags: [public, categories]
+      operationId: listCategoriesPublic
       x-roles: [anonymous, Subscriber, Author, Editor, Admin]
-      summary: Decode a hashid and redirect to the stored URL.
+      summary: List all categories (public).
       security: []
       parameters:
-        - $ref: '#/components/parameters/PathCode'
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
       responses:
-        '302':
-          description: Redirect to the original URL.
-          headers:
-            Location:
-              description: Original URL stored against this code.
-              schema: { type: string, format: uri }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '200':
+          description: Paginated categories.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedCategories' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /openapi.yaml:
     get:

@@ -16,6 +16,7 @@ import (
 	chiMW "github.com/go-chi/chi/v5/middleware"
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	categoryService "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortLinkService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
@@ -24,6 +25,7 @@ import (
 	observabilityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/observability"
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	securityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/security"
+	categoriesRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortLinksRepository "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -64,6 +66,7 @@ func main() {
 	tokensRepo := tokens.New(db)
 	postsRepo := postRepository.New(db)
 	shortLinksRepo := shortLinksRepository.New(db)
+	categoriesRepo := categoriesRepository.New(db)
 
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
 		Issuer:   cfg.JWTIssuer,
@@ -77,13 +80,15 @@ func main() {
 
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, logger)
-	postsSrvc := postService.New(postsRepo, encoder, logger)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, encoder, logger)
 	docsSrvc := docsService.New(issuer, logger)
 	shortLinksSrvc := shortLinkService.New(shortLinksRepo, encoder, logger)
+	categorySrvc := categoryService.New(categoriesRepo, logger)
 
 	// Mountable middlewares.
 	authMiddleware := authMW.Authenticate(issuer, logger)
 	requireAdmin := rbacMW.RequireRole("Admin", logger)
+	requireAdminOrEditor := rbacMW.RequireAnyRole(logger, "Admin", "Editor")
 
 	r := router.New(
 		router.Services{
@@ -91,11 +96,13 @@ func main() {
 			Users:      usersSrvc,
 			Posts:      postsSrvc,
 			ShortLinks: shortLinksSrvc,
+			Categories: categorySrvc,
 			Docs:       docsSrvc,
 		},
 		router.Middlewares{
-			Auth:         authMiddleware,
-			RequireAdmin: requireAdmin,
+			Auth:                 authMiddleware,
+			RequireAdmin:         requireAdmin,
+			RequireEditorOrAdmin: requireAdminOrEditor,
 			Global: []func(http.Handler) http.Handler{
 				chiMW.RequestID,
 				chiMW.RealIP,

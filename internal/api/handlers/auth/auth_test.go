@@ -14,10 +14,12 @@ import (
 	"time"
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	categoriesService "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortLinksService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	categoriessrepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	postsRepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortLinksRepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -46,6 +48,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	rbacRepo := rbacRepo.New(db)
 	postsRepo := postsRepo.New(db)
 	slRepo := shortLinksRepo.New(db)
+	categoriesRepo := categoriessrepo.New(db)
 
 	cfg := &config.Config{
 		JWTSecret:     "test-secret",
@@ -58,10 +61,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, nil)
 	shortLinksSrvc := shortLinksService.New(slRepo, nil, nil)
-	postsSrvc := postService.New(postsRepo, nil, nil)
+	categoriesSrvc := categoriesService.New(categoriesRepo, nil)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, nil, nil)
 	docsSrvc := docsService.New(issuer, nil)
 	r := router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, ShortLinks: shortLinksSrvc, Docs: docsSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Categories: categoriesSrvc, ShortLinks: shortLinksSrvc, Docs: docsSrvc},
 		router.Middlewares{},
 	)
 

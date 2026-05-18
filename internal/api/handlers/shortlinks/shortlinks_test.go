@@ -13,12 +13,14 @@ import (
 	"time"
 
 	authh "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	categoriesh "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	docsh "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postsh "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortlinksh "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	usersh "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authmw "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	rbacmw "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
+	categoriessrepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	postsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacrepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortlinksrepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -57,6 +59,7 @@ func setupShortLinkEnv(t *testing.T) *shortLinkEnv {
 	rbacRepo := rbacrepo.New(db)
 	postsRepo := postsrepo.New(db)
 	shortLinksRepo := shortlinksrepo.New(db)
+	categoriesRepo := categoriessrepo.New(db)
 	ctx := t.Context()
 
 	seed := map[string]struct {
@@ -85,11 +88,12 @@ func setupShortLinkEnv(t *testing.T) *shortLinkEnv {
 	encoder, _ := shortcode.New()
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
-	postsSvc := postsh.New(postsRepo, encoder, nil)
+	categoriesSvc := categoriesh.New(categoriesRepo, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	r := router.New(
-		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc},
+		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, Categories: categoriesSvc, ShortLinks: shortlinksSvc, Docs: docsSvc},
 		router.Middlewares{
 			Auth:         authmw.Authenticate(issuer, nil),
 			Bouncer:      rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),

@@ -23,6 +23,7 @@ func New() (*Encoder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new sqids: %w", err)
 	}
+
 	return &Encoder{s: s}, nil
 }
 
@@ -30,6 +31,7 @@ func (e *Encoder) Encode(id int64) (string, error) {
 	if id < 0 {
 		return "", errors.New("shortcode: negative id")
 	}
+
 	return e.s.Encode([]uint64{uint64(id)})
 }
 
@@ -38,5 +40,6 @@ func (e *Encoder) Decode(code string) (int64, error) {
 	if len(nums) != 1 {
 		return 0, errors.New("shortcode: invalid code")
 	}
+
 	return int64(nums[0]), nil
 }
