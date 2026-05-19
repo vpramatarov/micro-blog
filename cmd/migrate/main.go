@@ -64,7 +64,7 @@ func runSeedData(db *sql.DB, adminPassword string) {
 
 	_, err = db.Exec(`
 		INSERT OR IGNORE INTO users (username, email, password_hash, role_id) 
-		VALUES ('admin', 'admin@epic.com', '?', 1)
+		VALUES ('admin', 'admin@epic.com', ?, 1)
 	`, hash)
 	if err != nil {
 		log.Printf("Failed to insert admin user: %v\n", err)

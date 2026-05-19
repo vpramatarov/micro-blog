@@ -9,6 +9,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 )
@@ -23,6 +24,7 @@ type Services struct {
 	ShortLinks *shortlinks.Service
 	Posts      *posts.Service
 	Categories *categories.Service
+	Tags       *tags.Service
 	Docs       *docs.Service
 }
 
@@ -51,9 +53,12 @@ type Middlewares struct {
 
 // Route groups:
 //   - /                                 public — Home
-//   - GET /posts                        public — list posts (every response item carries a hashid `code`)
-//   - GET /posts/{code}                 public — read a post by hashid; the only by-id-style read non-admins get
+//   - GET /posts                        public — list posts (every response item carries a hashid `code` AND a `slug`)
+//   - GET /posts/{slug}                 public — read a post by its auto-generated slug
+//   - GET /p/{code}                     public — read a post by its sqids hashid (was /posts/{code} pre-categories)
 //   - GET /s/{code}                     public — URL-shortener resolution; 302 to the stored original URL
+//   - GET /categories,
+//     GET /tags                         public — read-only taxonomy listings
 //   - GET /openapi.yaml,
 //     GET /openapi.json,
 //     GET /docs                         public — OpenAPI spec + Swagger UI
@@ -62,21 +67,25 @@ type Middlewares struct {
 //   - GET  /api/me, PUT /api/me                 self-service profile (no role gate, no bouncer)
 //   - GET  /api/shortlinks                      handler-filtered list (Admin: all; others: own)
 //   - POST   /api/shortlinks,
-//   - PUT    /api/shortlinks/{id},
-//   - DELETE /api/shortlinks/{id}               bouncer-gated by shortlink:create/edit/delete
+//     PUT    /api/shortlinks/{id},
+//     DELETE /api/shortlinks/{id}               bouncer-gated by shortlink:create/edit/delete
 //   - /admin/*                          authenticated; sub-policies below
 //   - GET /admin/posts              any authenticated user; Authors see only own posts
 //   - POST /admin/posts,
-//   - PUT /admin/posts/{id},
-//   - DELETE /admin/posts/{id}      bouncer-gated: Admin/Editor=all, Author=own, Subscriber=denied
+//     PUT /admin/posts/{id},
+//     DELETE /admin/posts/{id}      bouncer-gated: Admin/Editor=all, Author=own, Subscriber=denied
+//   - POST   /admin/categories,
+//     PUT    /admin/categories/{id},
+//     DELETE /admin/categories/{id},
+//     POST   /admin/tags,
+//     PUT    /admin/tags/{id},
+//     DELETE /admin/tags/{id}       Admin + Editor only (RequireEditorOrAdmin)
 //   - GET /admin/post/{id}          Admin role only — numeric-id read
 //   - GET    /admin/users,
-//   - GET    /admin/users/{id},
-//   - POST   /admin/users,
-//   - PUT    /admin/users/{id},
-//   - DELETE /admin/users/{id}      Admin role only — user CRUD
-//   - /admin/roles/*,
-//   - /admin/permissions/*          Admin role only (future)
+//     GET    /admin/users/{id},
+//     POST   /admin/users,
+//     PUT    /admin/users/{id},
+//     DELETE /admin/users/{id}      Admin role only — user CRUD
 func New(srvc Services, mw Middlewares) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -90,13 +99,14 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	// Public post reads — no auth. Read-by-id is intentionally absent here;
 	// only the hashid-encoded `{code}` route exists publicly.
 	r.Get("/posts", srvc.Posts.List)
-	r.Get("/posts/{code}", srvc.Posts.GetByCode)
-
+	r.Get("/p/{code}", srvc.Posts.GetByCode)
+	r.Get("/posts/{slug}", srvc.Posts.GetBySlug)
 	// Public URL-shortener resolution. Decodes the hashid back to a row and 302-redirects to the original URL.
 	r.Get("/s/{code}", srvc.ShortLinks.Resolve)
 
 	// Public taxonomy reads.
 	r.Get("/categories", srvc.Categories.List)
+	r.Get("/tags", srvc.Tags.List)
 
 	// API documentation
 	// /openapi.yaml is the canonical spec;
@@ -159,16 +169,20 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Delete("/posts/{id}", srvc.Posts.Delete)
 		})
 
-		// Categories / tags writes — Admin + Editor only. No ownership, so
-		// the Bouncer matrix is not the right gate; a flat role list is.
+		// Categories / tags writes — Admin + Editor only. No ownership, so the Bouncer matrix is not the right gate; a flat role list is.
 		r.Group(func(r chi.Router) {
 			if mw.RequireEditorOrAdmin != nil {
 				r.Use(mw.RequireEditorOrAdmin)
 			}
 
+			// categories
 			r.Post("/categories", srvc.Categories.Create)
 			r.Put("/categories/{id}", srvc.Categories.Update)
 			r.Delete("/categories/{id}", srvc.Categories.Delete)
+			// tags
+			r.Post("/tags", srvc.Tags.Create)
+			r.Put("/tags/{id}", srvc.Tags.Update)
+			r.Delete("/tags/{id}", srvc.Tags.Delete)
 		})
 
 		// Admin-only subtree — by-id post read and user CRUD. Role and permission management will mount here too.

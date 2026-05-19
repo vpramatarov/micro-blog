@@ -59,7 +59,7 @@ func (r *Repo) Create(ctx context.Context, name string) (int64, error) {
 	return id, nil
 }
 
-func (r *Repo) GetById(ctx context.Context, id int64) (*Category, error) {
+func (r *Repo) GetByID(ctx context.Context, id int64) (*Category, error) {
 	q := fmt.Sprintf(`SELECT id, name, created_at FROM %s WHERE id = ?`, DB_TABLE)
 	var c Category
 	err := r.db.QueryRowContext(ctx, q, id).Scan(&c.ID, &c.Name, &c.CreatedAt)
@@ -73,7 +73,7 @@ func (r *Repo) GetById(ctx context.Context, id int64) (*Category, error) {
 }
 
 // GetByIDs returns the rows for `ids` keyed by id. Used by the posts handler to hydrate Post.Category on list responses with one round-trip (instead of N).
-func (r *Repo) GetByIds(ctx context.Context, ids []int64) (map[int64]Category, error) {
+func (r *Repo) GetByIDs(ctx context.Context, ids []int64) (map[int64]Category, error) {
 	out := make(map[int64]Category, len(ids))
 	if len(ids) == 0 {
 		return out, nil
@@ -145,11 +145,11 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// UpdateCategory replaces the name. Pre-checks existence for the same reason
+// Update replaces the name. Pre-checks existence for the same reason
 // as the rest of the repo layer — SQLite's RowsAffected on UPDATE counts only
 // rows that actually changed, so a no-op update on an existing row reports 0.
 func (r *Repo) Update(ctx context.Context, id int64, name string) error {
-	if _, err := r.GetById(ctx, id); err != nil {
+	if _, err := r.GetByID(ctx, id); err != nil {
 		return err
 	}
 

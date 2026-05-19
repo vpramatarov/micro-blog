@@ -86,7 +86,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := s.Categories.GetById(r.Context(), id)
+	cat, err := s.Categories.GetByID(r.Context(), id)
 	if err != nil {
 		s.Log.Error("load created category", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load category")
@@ -130,7 +130,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := s.Categories.GetById(r.Context(), id)
+	cat, err := s.Categories.GetByID(r.Context(), id)
 	if err != nil {
 		s.Log.Error("load updated category", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load category")

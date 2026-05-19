@@ -17,6 +17,7 @@ import (
 // children appear before their parents. SetupTestDB deletes rows in this order
 // between tests, and schema tests can iterate it to assert each table exists.
 var TableNames = []string{
+	"post_tags",
 	"short_links",
 	"posts",
 	"refresh_tokens",
@@ -24,6 +25,8 @@ var TableNames = []string{
 	"users",
 	"roles",
 	"permissions",
+	"categories",
+	"tags",
 }
 
 // wipeTableNames is the subset of TableNames that wipeTables actually clears
@@ -31,8 +34,11 @@ var TableNames = []string{
 // migration 00004 and treated as reference data — leaving them in place keeps
 // the test DB consistent with production after the per-binary DownTo 0 -> Up cycle.
 var wipeTableNames = []string{
+	"post_tags",
 	"short_links",
 	"posts",
+	"categories",
+	"tags",
 	"refresh_tokens",
 	"users",
 }
@@ -165,6 +171,10 @@ func wipeTables(db *sql.DB) error {
 
 		if _, err := db.Exec("UPDATE sqlite_sequence SET seq=1 WHERE name='" + name + "'"); err != nil {
 			return fmt.Errorf("reset autoincrement key for %s table: %w", name, err)
+		}
+
+		if _, err := db.Exec(`INSERT OR IGNORE INTO categories (id, name) VALUES (1, 'Uncategorized')`); err != nil {
+			return fmt.Errorf("reseed categories: %w", err)
 		}
 	}
 

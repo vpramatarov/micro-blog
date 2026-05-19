@@ -92,7 +92,7 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 }
 
 // GetBySlug is the read path behind GET /posts/{slug}. Public — the slug is taken from the URL and looked up directly.
-func (r *Repo) GetPostBySlug(ctx context.Context, slug string) (*Post, error) {
+func (r *Repo) GetBySlug(ctx context.Context, slug string) (*Post, error) {
 	q := fmt.Sprintf(`SELECT id, author_id, category_id, title, slug, markdown_content, html_content, created_at FROM %s WHERE slug = ?`, DB_TABLE)
 	var p Post
 	err := r.db.QueryRowContext(ctx, q, slug).Scan(&p.ID, &p.AuthorID, &p.CategoryID, &p.Title, &p.Slug, &p.MarkdownContent, &p.HTMLContent, &p.CreatedAt)
@@ -191,7 +191,7 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 
 func (r *Repo) CountByAuthor(ctx context.Context, authorID int64) (int, error) {
 	var n int
-	q := fmt.Sprintf("`SELECT COUNT(*) FROM %s WHERE author_id = ?`", DB_TABLE)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE author_id = ?", DB_TABLE)
 	err := r.db.QueryRowContext(ctx, q, authorID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count posts by author: %w", err)

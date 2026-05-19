@@ -20,6 +20,7 @@ import (
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortLinkService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
+	tagService "github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authMW "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	observabilityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/observability"
@@ -29,6 +30,7 @@ import (
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortLinksRepository "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
+	tagRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
 	userRepository "github.com/vpramatarov/micro-blog/internal/api/repository/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
@@ -67,6 +69,7 @@ func main() {
 	postsRepo := postRepository.New(db)
 	shortLinksRepo := shortLinksRepository.New(db)
 	categoriesRepo := categoriesRepository.New(db)
+	tagsRepo := tagRepository.New(db)
 
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
 		Issuer:   cfg.JWTIssuer,
@@ -80,10 +83,11 @@ func main() {
 
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, logger)
-	postsSrvc := postService.New(postsRepo, categoriesRepo, encoder, logger)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, tagsRepo, encoder, logger)
 	docsSrvc := docsService.New(issuer, logger)
 	shortLinksSrvc := shortLinkService.New(shortLinksRepo, encoder, logger)
 	categorySrvc := categoryService.New(categoriesRepo, logger)
+	tagSrvc := tagService.New(tagsRepo, logger)
 
 	// Mountable middlewares.
 	authMiddleware := authMW.Authenticate(issuer, logger)
@@ -97,6 +101,7 @@ func main() {
 			Posts:      postsSrvc,
 			ShortLinks: shortLinksSrvc,
 			Categories: categorySrvc,
+			Tags:       tagSrvc,
 			Docs:       docsSrvc,
 		},
 		router.Middlewares{

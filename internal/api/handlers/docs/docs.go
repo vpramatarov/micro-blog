@@ -13,7 +13,8 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/auth"
 )
 
-// Service exposes the docs endpoints. Issuer is used to decode the audience from the bearer token; nil falls back to anonymous on every request.
+// Service exposes the docs endpoints. Issuer is used to decode the audience
+// from the bearer token; nil falls back to anonymous on every request.
 type Service struct {
 	Issuer *auth.Issuer
 	Log    *slog.Logger
@@ -23,7 +24,6 @@ func New(issuer *auth.Issuer, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-
 	return &Service{Issuer: issuer, Log: log}
 }
 
@@ -56,6 +56,38 @@ const docsHTML = `<!DOCTYPE html>
   <div id="ui"></div>
   <script src="https://unpkg.com/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui-bundle.js" crossorigin="anonymous"></script>
   <script>
+    // Read the persisted bearer token. Two sources, in order of freshness:
+    //   1. Live Redux store — updated synchronously by the AUTHORIZE reducer,
+    //      so the subscriber below sees the new token in the same tick.
+    //   2. localStorage["authorized"] — persistAuthorization writes this AFTER
+    //      the dispatch wrapper completes; reliable on page reload but lags
+    //      the same-tick fetch the subscriber kicks off after Authorize.
+    function bearerFromStore() {
+      try {
+        const authorized = ui.getStore().getState().auth.get('authorized');
+        const tok = authorized && authorized.getIn(['BearerAuth', 'value']);
+        if (typeof tok === 'string' && tok) return tok;
+      } catch (_) {}
+      return '';
+    }
+    function bearerFromStorage() {
+      try {
+        const raw = localStorage.getItem('authorized');
+        if (!raw) return '';
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.BearerAuth && parsed.BearerAuth.value) {
+          return parsed.BearerAuth.value;
+        }
+      } catch (_) {}
+      return '';
+    }
+    function bearerToken() {
+      const raw = bearerFromStore() || bearerFromStorage();
+      // Strip an accidentally-pasted "Bearer " prefix so the header never
+      // ends up as "Authorization: Bearer Bearer eyJ...".
+      return raw.replace(/^\s*Bearer\s+/i, '');
+    }
+
     const ui = SwaggerUIBundle({
       url: "/openapi.json",
       dom_id: "#ui",
@@ -63,10 +95,11 @@ const docsHTML = `<!DOCTYPE html>
       persistAuthorization: true,
       requestInterceptor: (req) => {
         try {
-          const authed = ui.authActions.authorized().toJS();
-          const tok = authed && authed.BearerAuth && authed.BearerAuth.value;
-          if (tok && /\/openapi\.(json|yaml)(\?|$)/.test(req.url)) {
-            req.headers['Authorization'] = 'Bearer ' + tok;
+          if (/\/openapi\.(json|yaml)(\?|$)/.test(req.url)) {
+            const tok = bearerToken();
+            if (tok) {
+              req.headers['Authorization'] = 'Bearer ' + tok;
+            }
           }
         } catch (_) {}
         return req;
@@ -76,6 +109,8 @@ const docsHTML = `<!DOCTYPE html>
     // Re-fetch the spec whenever auth state changes so the visible operation
     // set tracks the current role. The auth slice is undefined on the very
     // first dispatches the bundle fires during init — bail until it's there.
+    // The cache-buster timestamp on the URL stops the browser HTTP cache from
+    // returning a stale anonymous spec for the authenticated re-fetch.
     let prev = null;
     ui.getStore().subscribe(() => {
       try {
@@ -84,7 +119,7 @@ const docsHTML = `<!DOCTYPE html>
         const a = authSlice.get('authorized');
         if (a !== prev) {
           prev = a;
-          ui.specActions.download('/openapi.json');
+          ui.specActions.download('/openapi.json?ts=' + Date.now());
         }
       } catch (_) {}
     });
@@ -92,43 +127,52 @@ const docsHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-// audienceFor picks the pre-filtered spec variant for the caller. The spec is documentation,
-// not a security boundary, so a missing/expired/forged token falls back to the anonymous variant rather than 401-ing the docs fetch.
+// audienceFor picks the pre-filtered spec variant for the caller. The spec is
+// documentation, not a security boundary, so a missing/expired/forged token
+// falls back to the anonymous variant rather than 401-ing the docs fetch.
 func (s *Service) audienceFor(r *http.Request) string {
 	const prefix = "Bearer "
 	raw := r.Header.Get("Authorization")
 	if !strings.HasPrefix(raw, prefix) || s.Issuer == nil {
 		return "anonymous"
 	}
-
 	claims, err := s.Issuer.Parse(strings.TrimSpace(raw[len(prefix):]))
 	if err != nil || claims == nil || claims.Role == "" {
 		return "anonymous"
 	}
-
 	if _, ok := api.SpecJSONByRole[claims.Role]; ok {
 		return claims.Role
 	}
-
 	return "anonymous"
 }
 
 // ServeOpenAPIYAML — GET /openapi.yaml. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIYAML(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml")
-	w.Write(api.SpecYAMLByRole[s.audienceFor(r)])
+	writeSpecHeaders(w, "application/yaml")
+	_, _ = w.Write(api.SpecYAMLByRole[s.audienceFor(r)])
 }
 
 // ServeOpenAPIJSON — GET /openapi.json. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(api.SpecJSONByRole[s.audienceFor(r)])
+	writeSpecHeaders(w, "application/json")
+	_, _ = w.Write(api.SpecJSONByRole[s.audienceFor(r)])
+}
+
+// writeSpecHeaders prevents the browser HTTP cache from serving the anonymous
+// variant of the spec after the user authorizes (the response body varies by
+// Authorization header but the URL is the same). Vary signals the same to any
+// well-behaved intermediate cache.
+func writeSpecHeaders(w http.ResponseWriter, contentType string) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
+	w.Header().Set("Vary", "Authorization")
 }
 
 // ServeDocs — GET /docs. Public.
 func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Inline JS is embedded in the binary; without this, a browser will happily keep serving the previous build's HTML after a redeploy.
+	// Inline JS is embedded in the binary; without this, a browser will happily
+	// keep serving the previous build's HTML after a redeploy.
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	// Override the strict default CSP from the SecurityHeaders middleware: the
 	// docs page legitimately loads CSS+JS from unpkg.com and runs an inline
@@ -140,5 +184,5 @@ func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 			"img-src 'self' data:; "+
 			"connect-src 'self'; "+
 			"frame-ancestors 'none'")
-	w.Write([]byte(docsHTML))
+	_, _ = w.Write([]byte(docsHTML))
 }

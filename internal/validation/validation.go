@@ -89,7 +89,7 @@ func ValidateEmail(s string) string {
 	return ""
 }
 
-// Password: required, ≥8 chars. Not trimmed (intentional whitespace).
+// Password: required, ≥8 chars. trimmed.
 func ValidatePassword(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

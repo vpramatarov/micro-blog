@@ -33,7 +33,7 @@ func TestCreateAndGetCategory(t *testing.T) {
 		t.Fatal("zero id returned")
 	}
 
-	got, err := r.GetById(ctx, id)
+	got, err := r.GetByID(ctx, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestCreateCategoryDuplicate(t *testing.T) {
 func TestGetCategoryNotFound(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	r := categories.New(db)
-	if _, err := r.GetById(t.Context(), 999_999); !errors.Is(err, categories.ErrCategoryNotFound) {
+	if _, err := r.GetByID(t.Context(), 999_999); !errors.Is(err, categories.ErrCategoryNotFound) {
 		t.Errorf("got %v, want ErrCategoryNotFound", err)
 	}
 }
@@ -76,7 +76,7 @@ func TestUpdateCategory(t *testing.T) {
 		t.Fatalf("update: %v", err)
 	}
 
-	got, _ := r.GetById(ctx, id)
+	got, _ := r.GetByID(ctx, id)
 	if got.Name != "new name" {
 		t.Errorf("name: got %q, want %q", got.Name, "new name")
 	}
@@ -113,7 +113,7 @@ func TestDeleteCategory(t *testing.T) {
 	if err := r.Delete(ctx, id); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := r.GetById(ctx, id); !errors.Is(err, categories.ErrCategoryNotFound) {
+	if _, err := r.GetByID(ctx, id); !errors.Is(err, categories.ErrCategoryNotFound) {
 		t.Errorf("after delete: got %v, want ErrCategoryNotFound", err)
 	}
 }

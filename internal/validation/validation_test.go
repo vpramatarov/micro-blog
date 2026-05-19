@@ -61,7 +61,7 @@ func TestPassword(t *testing.T) {
 	}{
 		{"", "is required"},
 		{"short", "must be at least 8 characters"},
-		{"        ", ""}, // intentional whitespace is allowed
+		{"        ", "is required"}, // only intentional whitespace is not allowed
 		{"hunter2!", ""},
 	}
 	for _, c := range cases {

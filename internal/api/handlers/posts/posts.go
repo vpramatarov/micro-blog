@@ -14,6 +14,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 	categoryRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
+	tagRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/markdown"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
@@ -25,9 +26,14 @@ const roleAuthor string = "Author"
 
 // PostResponse is the wire-format view: the scalar post columns plus the hydrated category and tags.
 // The embedded postRepository.Post is flattened by encoding/json so the JSON shape is the union of fields, not a nested `post` object.
+//
+// Tags is intentionally a map[int64]string so clients can index by id without scanning a slice.
+// encoding/json stringifies the int keys, producing `{"3":"go","5":"web"}` on the wire.
+// The hydration helpers always allocate an empty map so a post with no tags serializes as `{}`, not `null`.
 type PostResponse struct {
 	postRepository.Post
-	CategoryName string `json:"category,omitempty"`
+	CategoryName string           `json:"category_name,omitempty"`
+	Tags         map[int64]string `json:"tags"`
 }
 
 type postWriteRequest struct {
@@ -57,16 +63,17 @@ func (r *postWriteRequest) Validate() validation.Errors {
 type Service struct {
 	Posts      *postRepository.Repo
 	Categories *categoryRepository.Repo
+	Tags       *tagRepository.Repo
 	Encoder    *shortcode.Encoder
 	Log        *slog.Logger
 }
 
-func New(repo *postRepository.Repo, categoriesRepo *categoryRepository.Repo, encoder *shortcode.Encoder, log *slog.Logger) *Service {
+func New(repo *postRepository.Repo, categoriesRepo *categoryRepository.Repo, tagsRepo *tagRepository.Repo, encoder *shortcode.Encoder, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
 
-	return &Service{Posts: repo, Categories: categoriesRepo, Encoder: encoder, Log: log}
+	return &Service{Posts: repo, Categories: categoriesRepo, Tags: tagsRepo, Encoder: encoder, Log: log}
 }
 
 // List — GET /posts. Public. Returns every post with a hashid `code` callers can use against GET /posts/{code}. Paginated via ?page / ?per_page.
@@ -98,7 +105,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, httpx.Page[PostResponse]{Items: items, Page: page, PerPage: perPage, Total: total})
 }
 
-// GetByCode — GET /posts/{code}. Public; decodes the hashid back to a numeric id and serves the post.
+// GetByCode — GET /p/{code}. Public; decodes the hashid back to a numeric id and serves the post.
 // Used by everyone who is not an Admin and by unauthenticated callers.
 func (s *Service) GetByCode(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "code")
@@ -122,6 +129,35 @@ func (s *Service) GetByCode(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.Log.Error("get post", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load post")
+		return
+	}
+
+	view, err := s.hydrateOne(r, post)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load post")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, view)
+}
+
+// GetBySlug — GET /posts/{slug}. Public.
+func (s *Service) GetBySlug(w http.ResponseWriter, r *http.Request) {
+	slugParam := chi.URLParam(r, "slug")
+	if slugParam == "" {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
+		return
+	}
+
+	post, err := s.Posts.GetBySlug(r.Context(), slugParam)
+	if err != nil {
+		if errors.Is(err, postRepository.ErrPostNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
+			return
+		}
+
+		s.Log.Error("get post by slug", "err", err, "slug", slugParam)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load post")
 		return
 	}
@@ -381,12 +417,21 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 		}
 	}
 
-	view := &PostResponse{Post: *post}
-	if cat, err := s.Categories.GetById(r.Context(), post.CategoryID); err == nil {
+	view := &PostResponse{Post: *post, Tags: make(map[int64]string)}
+	if cat, err := s.Categories.GetByID(r.Context(), post.CategoryID); err == nil {
 		view.CategoryName = cat.Name
 	} else if !errors.Is(err, categoryRepository.ErrCategoryNotFound) {
 		s.Log.Error("hydrate category", "err", err, "category_id", post.CategoryID)
 		return nil, err
+	}
+
+	tagSlice, err := s.Tags.ListForPost(r.Context(), post.ID)
+	if err != nil {
+		s.Log.Error("hydrate tags", "err", err, "post_id", post.ID)
+		return nil, err
+	}
+	for _, t := range tagSlice {
+		view.Tags[t.ID] = t.Name
 	}
 
 	return view, nil
@@ -414,18 +459,27 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 		}
 	}
 
-	cats, err := s.Categories.GetByIds(r.Context(), catIDs)
+	cats, err := s.Categories.GetByIDs(r.Context(), catIDs)
 	if err != nil {
 		s.Log.Error("hydrate categories", "err", err)
 		return nil, err
 	}
 
-	for i, p := range posts {
-		view := PostResponse{Post: p}
+	tagsByPost, err := s.Tags.ListForPosts(r.Context(), postIDs)
+	if err != nil {
+		s.Log.Error("hydrate tags", "err", err)
+		return nil, err
+	}
 
-		if cat, ok := cats[p.CategoryID]; ok {
-			c := cat
+	for i, p := range posts {
+		view := PostResponse{Post: p, Tags: make(map[int64]string)}
+
+		if c, ok := cats[p.CategoryID]; ok {
 			view.CategoryName = c.Name
+		}
+
+		for _, t := range tagsByPost[p.ID] {
+			view.Tags[t.ID] = t.Name
 		}
 
 		items[i] = view

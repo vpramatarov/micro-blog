@@ -18,6 +18,7 @@ import (
 	docsh "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postsh "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortlinksh "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
+	tagsh "github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	usersh "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authmw "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	rbacmw "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
@@ -25,6 +26,7 @@ import (
 	postsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacrepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortlinksrepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
+	tagssrepo "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	tokensrepo "github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
 	usersrepo "github.com/vpramatarov/micro-blog/internal/api/repository/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
@@ -39,6 +41,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "prepare test schema: %v\n", err)
 		os.Exit(1)
 	}
+
 	os.Exit(m.Run())
 }
 
@@ -50,6 +53,7 @@ type appDeps struct {
 	usersRepo      *usersrepo.Repo
 	postsRepo      *postsrepo.Repo
 	categoriesRepo *categoriesrepo.Repo
+	tagsRepo       *tagssrepo.Repo
 	issuer         *auth.Issuer
 	encoder        *shortcode.Encoder
 }
@@ -63,6 +67,7 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 	postsRepo := postsrepo.New(db)
 	shortLinksRepo := shortlinksrepo.New(db)
 	categoriesRepo := categoriesrepo.New(db)
+	tagsRepo := tagssrepo.New(db)
 
 	cfg := &config.Config{JWTSecret: "test", JWTAccessTTL: 5 * time.Minute, JWTRefreshTTL: time.Hour, CookieSecure: false}
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{})
@@ -70,15 +75,17 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 	if err != nil {
 		t.Fatalf("encoder: %v", err)
 	}
+
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
-	postsSvc := postsh.New(postsRepo, categoriesRepo, encoder, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, tagsRepo, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	categoriesSvc := categoriesh.New(categoriesRepo, nil)
+	tagsSvc := tagsh.New(tagsRepo, nil)
 
 	r := router.New(
-		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc, Categories: categoriesSvc},
+		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc, Categories: categoriesSvc, Tags: tagsSvc},
 		router.Middlewares{
 			Auth:                 authmw.Authenticate(issuer, nil),
 			Bouncer:              rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
@@ -86,11 +93,13 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 			RequireEditorOrAdmin: rbacmw.RequireAnyRole(nil, "Admin", "Editor"),
 		},
 	)
+
 	return &appDeps{
 		r:              r,
 		usersRepo:      usersRepo,
 		postsRepo:      postsRepo,
 		categoriesRepo: categoriesRepo,
+		tagsRepo:       tagsRepo,
 		issuer:         issuer,
 		encoder:        encoder,
 	}, db
@@ -105,9 +114,11 @@ func doJSON(t *testing.T, srv http.Handler, method, path, token, body string) *h
 		r = httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 	}
+
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
+
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, r)
 	return rec
@@ -344,12 +355,25 @@ func TestGetPostBySlugPublic(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
+	tagA, err := app.tagsRepo.Create(ctx, "go")
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+
+	tagB, err := app.tagsRepo.Create(ctx, "web")
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+
 	postID, err := app.postsRepo.Create(ctx, postsrepo.PostInsert{
-		AuthorID: authorID, CategoryID: 1,
-		Title: "Hello slug", Slug: "hello-slug", Markdown: "# hi", HTML: "<h1>hi</h1>",
+		AuthorID: authorID, CategoryID: 1, Title: "Hello slug", Slug: "hello-slug", Markdown: "# hi", HTML: "<h1>hi</h1>",
 	})
 	if err != nil {
 		t.Fatalf("create post: %v", err)
+	}
+
+	if err := app.tagsRepo.ReplaceForPost(ctx, postID, []int64{tagA, tagB}); err != nil {
+		t.Fatalf("attach tags: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/posts/hello-slug", nil)
@@ -360,10 +384,11 @@ func TestGetPostBySlugPublic(t *testing.T) {
 	}
 
 	var got struct {
-		ID           int64  `json:"id"`
-		Slug         string `json:"slug"`
-		CategoryID   int64  `json:"category_id"`
-		CategoryName string `json:"category_name"`
+		ID           int64            `json:"id"`
+		Slug         string           `json:"slug"`
+		CategoryID   int64            `json:"category_id"`
+		CategoryName string           `json:"category_name"`
+		Tags         map[int64]string `json:"tags"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
@@ -375,6 +400,14 @@ func TestGetPostBySlugPublic(t *testing.T) {
 
 	if got.CategoryID != 1 || got.CategoryName != "Uncategorized" {
 		t.Errorf("category: got id=%d name=%q, want id=1 name=Uncategorized", got.CategoryID, got.CategoryName)
+	}
+
+	if len(got.Tags) != 2 {
+		t.Errorf("tags count: got %d, want 2", len(got.Tags))
+	}
+
+	if got.Tags[tagA] != "go" || got.Tags[tagB] != "web" {
+		t.Errorf("tags map: got %v, want {%d:\"go\", %d:\"web\"}", got.Tags, tagA, tagB)
 	}
 
 	// Missing slug → 404.

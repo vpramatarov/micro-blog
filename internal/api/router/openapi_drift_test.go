@@ -10,12 +10,13 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/vpramatarov/micro-blog/api"
-	authHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
-	categoryHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
-	docHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
-	postHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
-	shortLinksHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
-	userHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	authh "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	categoriesh "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
+	docsh "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postsh "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	shortlinksh "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
+	tagsh "github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
+	usersh "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/config"
 )
@@ -25,15 +26,19 @@ import (
 // handlers/repository split, no single constructor wires everything; the
 // drift test recreates the same wiring main.go does in miniature.
 func buildRouter() *chi.Mux {
-	authSrvc := authHandler.New(&config.Config{}, nil, nil, nil, nil)
-	usersSrvc := userHandler.New(&config.Config{}, nil, nil, nil)
-	categorySrvc := categoryHandler.New(nil, nil)
-	postsSrvc := postHandler.New(nil, nil, nil, nil)
-	docSrvc := docHandler.New(nil, nil)
-	shortLinksSrvc := shortLinksHandler.New(nil, nil, nil)
-
+	authSvc := authh.New(&config.Config{}, nil, nil, nil, nil)
+	usersSvc := usersh.New(&config.Config{}, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil, nil)
+	shortlinksSvc := shortlinksh.New(nil, nil, nil)
+	docsSvc := docsh.New(nil, nil)
+	categoriesSvc := categoriesh.New(nil, nil)
+	tagsSvc := tagsh.New(nil, nil)
 	return router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Categories: categorySrvc, ShortLinks: shortLinksSrvc, Docs: docSrvc},
+		router.Services{
+			Auth: authSvc, Users: usersSvc, Posts: postsSvc,
+			ShortLinks: shortlinksSvc, Docs: docsSvc,
+			Categories: categoriesSvc, Tags: tagsSvc,
+		},
 		router.Middlewares{},
 	)
 }
@@ -57,8 +62,7 @@ func TestOpenAPISpecCoversEveryRoute(t *testing.T) {
 	}
 
 	// Methods openapi cares about. chi.Walk reports each registered method
-	// individually, so this list is also the lowercase keys we expect in the
-	// spec's paths.<path> map.
+	// individually, so this list is also the lowercase keys we expect in the spec's paths.<path> map.
 	validMethods := map[string]bool{
 		"get": true, "post": true, "put": true, "patch": true, "delete": true,
 		"head": true, "options": true, "trace": true,
@@ -146,7 +150,10 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	public := []string{
 		"GET /",
 		"GET /posts",
-		"GET /posts/{code}",
+		"GET /posts/{slug}",
+		"GET /p/{code}",
+		"GET /categories",
+		"GET /tags",
 		"GET /s/{code}",
 		"GET /openapi.yaml",
 		"GET /openapi.json",
@@ -158,26 +165,32 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	}
 	// Plus authenticated-any-role (profile + handler-filtered lists).
 	anyAuth := append(append([]string{}, public...),
-		[]string{
-			"GET /api/me",
-			"PUT /api/me",
-			"GET /api/shortlinks",
-			"GET /admin/posts",
-		}...,
+		"GET /api/me",
+		"PUT /api/me",
+		"GET /api/shortlinks",
+		"GET /admin/posts",
 	)
-	// Plus content writes (Author/Editor/Admin).
-	contentWriter := append(append([]string{}, anyAuth...),
-		[]string{
-			"POST /api/shortlinks",
-			"PUT /api/shortlinks/{id}",
-			"DELETE /api/shortlinks/{id}",
-			"POST /admin/posts",
-			"PUT /admin/posts/{id}",
-			"DELETE /admin/posts/{id}",
-		}...,
+	// Plus post + shortlink writes — Authors and above. (Author and Editor
+	// used to share a tier; they diverge here because category/tag writes are Editor-and-above only.)
+	author := append(append([]string{}, anyAuth...),
+		"POST /api/shortlinks",
+		"PUT /api/shortlinks/{id}",
+		"DELETE /api/shortlinks/{id}",
+		"POST /admin/posts",
+		"PUT /admin/posts/{id}",
+		"DELETE /admin/posts/{id}",
+	)
+	// Plus taxonomy writes (Editor + Admin only).
+	editor := append(append([]string{}, author...),
+		"POST /admin/categories",
+		"PUT /admin/categories/{id}",
+		"DELETE /admin/categories/{id}",
+		"POST /admin/tags",
+		"PUT /admin/tags/{id}",
+		"DELETE /admin/tags/{id}",
 	)
 	// Plus admin-only (numeric-id post read + user CRUD).
-	admin := append(append([]string{}, contentWriter...),
+	admin := append(append([]string{}, editor...),
 		"GET /admin/post/{id}",
 		"GET /admin/users",
 		"POST /admin/users",
@@ -189,8 +202,8 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	expected := map[string][]string{
 		"anonymous":  public,
 		"Subscriber": anyAuth,
-		"Author":     contentWriter,
-		"Editor":     contentWriter,
+		"Author":     author,
+		"Editor":     editor,
 		"Admin":      admin,
 	}
 
@@ -215,6 +228,7 @@ func operationsIn(t *testing.T, spec []byte) map[string]bool {
 		"get": true, "post": true, "put": true, "patch": true, "delete": true,
 		"head": true, "options": true, "trace": true,
 	}
+
 	out := map[string]bool{}
 	for path, ops := range doc.Paths {
 		for method := range ops {

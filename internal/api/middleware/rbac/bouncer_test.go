@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 
 // setupBouncerEnv stands up an in-memory chi router mirroring the production
 // /admin layout (Authenticate at /admin, Bouncer on the post-write subgroup,
-// plain auth on /admin/post/{id}) with a DB pre-populated with one user per role and an Alice-owned post.
+// plain auth on /admin/posts/{id}) with a DB pre-populated with one user per role and an Alice-owned post.
 type bouncerEnv struct {
 	srv         *httptest.Server
 	issuer      *auth.Issuer

@@ -26,7 +26,7 @@ func buildDocsRouter(t *testing.T, issuer *auth.Issuer) http.Handler {
 	cfg := &config.Config{}
 	authSvc := authh.New(cfg, nil, nil, nil, nil)
 	usersSvc := usersh.New(cfg, nil, nil, nil)
-	postsSvc := postsh.New(nil, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil, nil)
 	shortlinksSvc := shortlinksh.New(nil, nil, nil)
 	docsSvc := docsh.New(issuer, nil)
 	return router.New(
