@@ -20,7 +20,7 @@ const POST_TAG_TABLE string = "post_tags"
 // ErrTagNotFound is returned when a SELECT/UPDATE/DELETE targets an id that does not exist.
 var ErrTagNotFound = errors.New("tag not found")
 
-// ErrTagDuplicate is returned when an INSERT or UPDATE would collide on (name) — the column is UNIQUE in migration 00006.
+// ErrTagDuplicate is returned when an INSERT or UPDATE would collide on name.
 var ErrTagDuplicate = errors.New("tag already exists")
 
 // Tag is both the DB row and the JSON view.
@@ -87,6 +87,7 @@ func (r *Repo) List(ctx context.Context, limit, offset int) ([]Tag, error) {
 		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
+
 		out = append(out, t)
 	}
 
@@ -160,8 +161,8 @@ func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	for _, id := range ids {
+		args = append(args, id)
 	}
 
 	q := fmt.Sprintf(`SELECT id FROM %s WHERE id IN (%s)`, DB_TABLE, placeholders)
@@ -217,6 +218,7 @@ func (r *Repo) ListForPost(ctx context.Context, postID int64) ([]Tag, error) {
 		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
+
 		out = append(out, t)
 	}
 
@@ -227,7 +229,7 @@ func (r *Repo) ListForPost(ctx context.Context, postID int64) ([]Tag, error) {
 	return out, nil
 }
 
-// ListTagsForPosts batches ListTagsForPost across a slice of post ids in one
+// ListForPosts batches ListForPost across a slice of post ids in one
 // round-trip, returning a map keyed by post id. Every input id is present in
 // the map (possibly with an empty slice). Used by the posts handler to hydrate list responses without an N+1.
 func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]Tag, error) {
@@ -243,8 +245,8 @@ func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]T
 	placeholders := strings.Repeat("?,", len(postIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(postIDs))
-	for i, id := range postIDs {
-		args[i] = id
+	for _, id := range postIDs {
+		args = append(args, id)
 	}
 
 	q := fmt.Sprintf(`
@@ -291,7 +293,7 @@ func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64)
 		// rollback is a no-op if Commit already ran.
 		_ = tx.Rollback()
 	}()
-	
+
 	q := fmt.Sprintf(`DELETE FROM %s WHERE post_id = ?`, POST_TAG_TABLE)
 	if _, err := tx.ExecContext(ctx, q, postID); err != nil {
 		return fmt.Errorf("clear post tags: %w", err)
