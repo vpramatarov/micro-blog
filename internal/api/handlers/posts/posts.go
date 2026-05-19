@@ -36,9 +36,10 @@ type PostResponse struct {
 }
 
 type postWriteRequest struct {
-	Title      string `json:"title"`
-	Markdown   string `json:"markdown_content"`
-	CategoryID int64  `json:"category_id"`
+	Title      string  `json:"title"`
+	Markdown   string  `json:"markdown_content"`
+	CategoryID int64   `json:"category_id"`
+	TagIDs     []int64 `json:"tag_ids"`
 }
 
 func (r *postWriteRequest) normalize() {
@@ -523,6 +524,19 @@ func (s *Service) validateTaxonomies(w http.ResponseWriter, r *http.Request, req
 
 	if !exists {
 		errs.Add("category_id", "does not exist")
+	}
+
+	if len(req.TagIDs) > 0 {
+		missing, err := s.Tags.MissingIDs(r.Context(), req.TagIDs)
+		if err != nil {
+			s.Log.Error("tags exists check", "err", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not validate tags")
+			return false
+		}
+
+		if len(missing) > 0 {
+			errs.Add("tag_ids", "one or more tag ids do not exist")
+		}
 	}
 
 	if !errs.IsEmpty() {

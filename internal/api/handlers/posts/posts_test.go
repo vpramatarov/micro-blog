@@ -575,8 +575,7 @@ func TestUpdatePostAdmin(t *testing.T) {
 
 	// Seed a post owned by Author.
 	id, err := env.app.postsRepo.Create(t.Context(), postsrepo.PostInsert{
-		AuthorID: env.userID["Author"], CategoryID: 1,
-		Title: "old", Slug: "old-slug-1", Markdown: "old md", HTML: "old md",
+		AuthorID: env.userID["Author"], CategoryID: 1, Title: "old", Slug: "old-slug-1", Markdown: "old md", HTML: "old md",
 	})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -615,8 +614,7 @@ func TestUpdatePostAdmin(t *testing.T) {
 func TestUpdatePostNoOpStillReturns200(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	id, err := env.app.postsRepo.Create(t.Context(), postsrepo.PostInsert{
-		AuthorID: env.userID["Author"], CategoryID: 1,
-		Title: "same", Slug: "noop-slug", Markdown: "md", HTML: "rendered",
+		AuthorID: env.userID["Author"], CategoryID: 1, Title: "same", Slug: "noop-slug", Markdown: "md", HTML: "rendered",
 	})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -654,8 +652,7 @@ func TestUpdatePostAuthorOwnVsOther(t *testing.T) {
 
 	// Seed a post owned by the original Author.
 	postID, err := env.app.postsRepo.Create(ctx, postsrepo.PostInsert{
-		AuthorID: env.userID["Author"], CategoryID: 1,
-		Title: "t", Slug: "owner-test-slug", Markdown: "md", HTML: "md",
+		AuthorID: env.userID["Author"], CategoryID: 1, Title: "t", Slug: "owner-test-slug", Markdown: "md", HTML: "md",
 	})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
