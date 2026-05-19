@@ -59,8 +59,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create — POST /admin/categories. Admin or Editor only (enforced by
-// router-level RequireEditorOrAdmin middleware).
+// Create — POST /admin/categories. Admin or Editor only (enforced by router-level RequireEditorOrAdmin middleware).
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	var req categoryWriteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
