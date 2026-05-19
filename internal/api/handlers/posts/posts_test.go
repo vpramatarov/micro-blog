@@ -320,6 +320,14 @@ func TestGetPostByHashidPublic(t *testing.T) {
 		t.Errorf("code: got %q, want %q", post.Code, code)
 	}
 
+	if post.AuthorName != "writer" {
+		t.Errorf("author_name: got %q, want %q", post.AuthorName, "writter")
+	}
+
+	if post.CategoryName != "Uncategorized" {
+		t.Errorf("category_name: got %q, want %q", post.CategoryName, "Uncategorized")
+	}
+
 	// Bad code → 404.
 	req = httptest.NewRequest(http.MethodGet, "/p/!!!not-a-code", nil)
 	rec = httptest.NewRecorder()
@@ -386,6 +394,8 @@ func TestGetPostBySlugPublic(t *testing.T) {
 	var got struct {
 		ID           int64            `json:"id"`
 		Slug         string           `json:"slug"`
+		AuthorID     int64            `json:"author_id"`
+		AuthorName   string           `json:"author_name"`
 		CategoryID   int64            `json:"category_id"`
 		CategoryName string           `json:"category_name"`
 		Tags         map[int64]string `json:"tags"`
@@ -396,6 +406,10 @@ func TestGetPostBySlugPublic(t *testing.T) {
 
 	if got.ID != postID || got.Slug != "hello-slug" {
 		t.Errorf("wrong post: %+v", got)
+	}
+
+	if got.AuthorID != authorID || got.AuthorName != "writer" {
+		t.Errorf("author: got id=%d name=%q, want id=%d name=writter", got.AuthorID, got.AuthorName, authorID)
 	}
 
 	if got.CategoryID != 1 || got.CategoryName != "Uncategorized" {
@@ -486,6 +500,14 @@ func TestCreatePostAsAuthor(t *testing.T) {
 
 	if got.AuthorID != env.userID["Author"] {
 		t.Errorf("author_id: got %d, want %d", got.AuthorID, env.userID["Author"])
+	}
+
+	if got.AuthorName != "author" {
+		t.Errorf("author_name: got %q, want %q", got.AuthorName, "author")
+	}
+
+	if got.CategoryName != "Uncategorized" {
+		t.Errorf("category_name: got %q, want %q", got.CategoryName, "Uncategorized")
 	}
 
 	if got.Title != "hello" || got.MarkdownContent != "# hi\n\nworld" {

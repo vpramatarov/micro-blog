@@ -142,7 +142,7 @@ components:
 
     Post:
       type: object
-      required: [id, author_id, category_id, title, slug, markdown_content, html_content, created_at, tags]
+      required: [id, author_id, author_name, category_id, category_name, title, slug, markdown_content, html_content, created_at, tags]
       properties:
         id: { type: integer, format: int64, example: 42 }
         code:
@@ -150,13 +150,17 @@ components:
           example: X7bL9q
           description: Hashid of `id`; present on response, never sent on requests.
         author_id: { type: integer, format: int64, example: 7 }
+        author_name:
+          type: string
+          example: "alice"
+          description: |
+            Username of the referenced row by `author_id`
         category_id: { type: integer, format: int64, example: 2 }
         category_name:
           type: string
           example: Engineering
           description: |
             Name of the row referenced by `category_id`, hydrated server-side.
-            Omitted when the category row could not be loaded.
         title: { type: string, example: "Hello world" }
         slug:
           type: string

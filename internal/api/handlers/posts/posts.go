@@ -32,8 +32,7 @@ const roleAuthor string = "Author"
 // The hydration helpers always allocate an empty map so a post with no tags serializes as `{}`, not `null`.
 type PostResponse struct {
 	postRepository.Post
-	CategoryName string           `json:"category_name,omitempty"`
-	Tags         map[int64]string `json:"tags"`
+	Tags map[int64]string `json:"tags"`
 }
 
 type postWriteRequest struct {
@@ -418,18 +417,12 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 	}
 
 	view := &PostResponse{Post: *post, Tags: make(map[int64]string)}
-	if cat, err := s.Categories.GetByID(r.Context(), post.CategoryID); err == nil {
-		view.CategoryName = cat.Name
-	} else if !errors.Is(err, categoryRepository.ErrCategoryNotFound) {
-		s.Log.Error("hydrate category", "err", err, "category_id", post.CategoryID)
-		return nil, err
-	}
-
 	tagSlice, err := s.Tags.ListForPost(r.Context(), post.ID)
 	if err != nil {
 		s.Log.Error("hydrate tags", "err", err, "post_id", post.ID)
 		return nil, err
 	}
+
 	for _, t := range tagSlice {
 		view.Tags[t.ID] = t.Name
 	}
@@ -441,28 +434,15 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]PostResponse, error) {
 	items := make([]PostResponse, len(posts))
 
-	// Collect distinct category ids and post ids for batched lookups.
-	catIDs := make([]int64, 0, len(posts))
-	catSeen := make(map[int64]struct{}, len(posts))
 	postIDs := make([]int64, len(posts))
 	for i, p := range posts {
 		postIDs[i] = p.ID
-		if _, ok := catSeen[p.CategoryID]; !ok {
-			catSeen[p.CategoryID] = struct{}{}
-			catIDs = append(catIDs, p.CategoryID)
-		}
 
 		if s.Encoder != nil {
 			if code, err := s.Encoder.Encode(posts[i].ID); err != nil {
 				posts[i].Code = code
 			}
 		}
-	}
-
-	cats, err := s.Categories.GetByIDs(r.Context(), catIDs)
-	if err != nil {
-		s.Log.Error("hydrate categories", "err", err)
-		return nil, err
 	}
 
 	tagsByPost, err := s.Tags.ListForPosts(r.Context(), postIDs)
@@ -473,11 +453,6 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 
 	for i, p := range posts {
 		view := PostResponse{Post: p, Tags: make(map[int64]string)}
-
-		if c, ok := cats[p.CategoryID]; ok {
-			view.CategoryName = c.Name
-		}
-
 		for _, t := range tagsByPost[p.ID] {
 			view.Tags[t.ID] = t.Name
 		}
