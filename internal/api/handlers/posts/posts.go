@@ -408,7 +408,7 @@ func (s *Service) loadView(r *http.Request, id int64) (*PostResponse, error) {
 	return s.hydrateOne(r, post)
 }
 
-// hydrateOne attaches Category to a single post.
+// hydrateOne attaches Tags & code to a single post.
 func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostResponse, error) {
 	if s.Encoder != nil {
 		if code, err := s.Encoder.Encode(post.ID); err == nil {
@@ -430,7 +430,7 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 	return view, nil
 }
 
-// hydrateMany batches category hydration across a page of posts.
+// hydrateMany batches tags hydration across a page of posts.
 func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]PostResponse, error) {
 	items := make([]PostResponse, len(posts))
 
