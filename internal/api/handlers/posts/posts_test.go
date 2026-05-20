@@ -1,10 +1,13 @@
 package posts_test
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +26,7 @@ import (
 	authmw "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	rbacmw "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	categoriesrepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	jobsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacrepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortlinksrepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -32,8 +36,10 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
+	jobsWorker "github.com/vpramatarov/micro-blog/internal/jobs"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	"github.com/vpramatarov/micro-blog/internal/testutil"
+	"github.com/vpramatarov/micro-blog/internal/uploads"
 )
 
 func TestMain(m *testing.M) {
@@ -46,14 +52,16 @@ func TestMain(m *testing.M) {
 }
 
 // buildApp wires the full router with all handler services and middlewares
-// against the given DB. Returns the mux plus the repos that tests insert
-// fixture data through.
+// against the given DB. Returns the mux plus the repos that tests insert fixture data through.
 type appDeps struct {
 	r              http.Handler
 	usersRepo      *usersrepo.Repo
 	postsRepo      *postsrepo.Repo
 	categoriesRepo *categoriesrepo.Repo
 	tagsRepo       *tagssrepo.Repo
+	jobsWorker     *jobsWorker.Worker
+	storage        *uploads.Storage
+	uploadsRoot    string
 	issuer         *auth.Issuer
 	encoder        *shortcode.Encoder
 }
@@ -68,6 +76,12 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 	shortLinksRepo := shortlinksrepo.New(db)
 	categoriesRepo := categoriesrepo.New(db)
 	tagsRepo := tagssrepo.New(db)
+	jobsRepo := jobsrepo.New(db)
+
+	// Per-test sandbox for uploads — wiped automatically by t.Cleanup via t.TempDir,
+	// so nothing leaks between tests and we don't touch the project's real ./uploads directory.
+	uploadsRoot := t.TempDir()
+	storage := uploads.New(uploadsRoot)
 
 	cfg := &config.Config{JWTSecret: "test", JWTAccessTTL: 5 * time.Minute, JWTRefreshTTL: time.Hour, CookieSecure: false}
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{})
@@ -78,14 +92,19 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
-	postsSvc := postsh.New(postsRepo, categoriesRepo, tagsRepo, encoder, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, tagsRepo, storage, jobsRepo, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	categoriesSvc := categoriesh.New(categoriesRepo, nil)
 	tagsSvc := tagsh.New(tagsRepo, nil)
+	jobWorker := jobsWorker.NewWorker(jobsRepo, nil)
 
 	r := router.New(
-		router.Services{Auth: authSvc, Users: usersSvc, Posts: postsSvc, ShortLinks: shortlinksSvc, Docs: docsSvc, Categories: categoriesSvc, Tags: tagsSvc},
+		router.Services{
+			Auth: authSvc, Users: usersSvc, Posts: postsSvc,
+			ShortLinks: shortlinksSvc, Docs: docsSvc, Categories: categoriesSvc,
+			Tags: tagsSvc, UploadsRoot: uploadsRoot,
+		},
 		router.Middlewares{
 			Auth:                 authmw.Authenticate(issuer, nil),
 			Bouncer:              rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
@@ -100,9 +119,55 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 		postsRepo:      postsRepo,
 		categoriesRepo: categoriesRepo,
 		tagsRepo:       tagsRepo,
+		storage:        storage,
+		jobsWorker:     jobWorker,
+		uploadsRoot:    uploadsRoot,
 		issuer:         issuer,
 		encoder:        encoder,
 	}, db
+}
+
+// doMultipartPost wraps body (the JSON for the "data" form field) into a multipart request and optionally attaches a file to the "featured_image" field.
+// fileBytes==nil → no file. Used by every test that creates or updates a post — the endpoints accept multipart only.
+func doMultipartPost(t *testing.T, srv http.Handler, method, path, token, dataJSON string, fileName string, fileBytes []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if dataJSON != "" {
+		fw, err := mw.CreateFormField("data")
+		if err != nil {
+			t.Fatalf("multipart create data field: %v", err)
+		}
+
+		if _, err := io.WriteString(fw, dataJSON); err != nil {
+			t.Fatalf("multipart write data: %v", err)
+		}
+	}
+
+	if fileBytes != nil {
+		fw, err := mw.CreateFormFile("featured_image", fileName)
+		if err != nil {
+			t.Fatalf("multipart create file: %v", err)
+		}
+
+		if _, err := fw.Write(fileBytes); err != nil {
+			t.Fatalf("multipart write file: %v", err)
+		}
+	}
+
+	if err := mw.Close(); err != nil {
+		t.Fatalf("multipart close: %v", err)
+	}
+
+	r := httptest.NewRequest(method, path, &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, r)
+	return rec
 }
 
 func doJSON(t *testing.T, srv http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
@@ -162,6 +227,7 @@ func TestListPostsAdminFilteringByRole(t *testing.T) {
 		if err != nil {
 			t.Fatalf("issue token: %v", err)
 		}
+
 		return tok
 	}
 
@@ -185,6 +251,7 @@ func TestListPostsAdminFilteringByRole(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
 			}
+
 			var page struct {
 				Items []postsrepo.Post `json:"items"`
 				Total int              `json:"total"`
@@ -210,8 +277,7 @@ func TestListPostsAdminUnauthenticated(t *testing.T) {
 	}
 }
 
-// TestGetPostAdminRequiresAdminRole asserts that /admin/post/{id} (numeric id
-// read) is gated to the Admin role only — Authors/Editors/Subscribers get 403.
+// TestGetPostAdminRequiresAdminRole asserts that /admin/post/{id} (numeric id read) is gated to the Admin role only — Authors/Editors/Subscribers get 403.
 func TestGetPostAdminRequiresAdminRole(t *testing.T) {
 	app, raw := buildApp(t)
 	ctx := t.Context()
@@ -244,6 +310,7 @@ func TestGetPostAdminRequiresAdminRole(t *testing.T) {
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
+
 		return tok
 	}
 
@@ -484,7 +551,7 @@ func setupPostWriteEnv(t *testing.T) *postWriteEnv {
 func TestCreatePostAsAuthor(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"hello","markdown_content":"# hi\n\nworld","category_id":1}`
-	rec := doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body, "", nil)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: got %d, want 201; body=%s", rec.Code, rec.Body.String())
 	}
@@ -553,7 +620,7 @@ func TestCreatePostBadBody(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], tc.body)
+			rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], tc.body, "", nil)
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("got %d, want 400; body=%s", rec.Code, rec.Body.String())
 			}
@@ -564,7 +631,7 @@ func TestCreatePostBadBody(t *testing.T) {
 func TestCreatePostSubscriberDenied(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"valid title","markdown_content":"valid markdown body","category_id":1}`
-	rec := doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Subscriber"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Subscriber"], body, "", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("subscriber create: got %d, want 403", rec.Code)
 	}
@@ -582,7 +649,7 @@ func TestUpdatePostAdmin(t *testing.T) {
 	}
 
 	body := `{"title":"new","markdown_content":"new markdown body","category_id":1}`
-	rec := doJSON(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("admin update: got %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -622,14 +689,14 @@ func TestUpdatePostNoOpStillReturns200(t *testing.T) {
 
 	// First request changes values — works either way.
 	body := `{"title":"same title","markdown_content":"identical body","category_id":1}`
-	rec := doJSON(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("first update: got %d, want 200", rec.Code)
 	}
 
 	// Second request with the exact same body — the row already matches, so
 	// SQLite reports RowsAffected=0. The handler must still return 200.
-	rec = doJSON(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body)
+	rec = doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("no-op update: got %d, want 200 (regression in UpdatePost pre-check)", rec.Code)
 	}
@@ -661,13 +728,13 @@ func TestUpdatePostAuthorOwnVsOther(t *testing.T) {
 	body := `{"title":"changed","markdown_content":"changed markdown body","category_id":1}`
 
 	// Author edits own post → 200.
-	rec := doJSON(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", postID), env.tokens["Author"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", postID), env.tokens["Author"], body, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Errorf("author own: got %d, want 200", rec.Code)
 	}
 
 	// Other Author edits foreign post → bouncer 403.
-	rec = doJSON(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", postID), otherTok, body)
+	rec = doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", postID), otherTok, body, "", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("foreign author: got %d, want 403", rec.Code)
 	}
@@ -676,7 +743,7 @@ func TestUpdatePostAuthorOwnVsOther(t *testing.T) {
 func TestUpdatePostNotFoundAdmin(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"valid title","markdown_content":"valid body content","category_id":1}`
-	rec := doJSON(t, env.app.r, http.MethodPut, "/admin/posts/99999", env.tokens["Admin"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPut, "/admin/posts/99999", env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("admin update missing: got %d, want 404", rec.Code)
 	}
@@ -714,8 +781,7 @@ func TestDeletePostNotFoundAdmin(t *testing.T) {
 // TestCreatePostValidationEnvelope checks title, body, and category_id errors all surface in one accumulated 400 response.
 func TestCreatePostValidationEnvelope(t *testing.T) {
 	env := setupPostWriteEnv(t)
-	rec := doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"],
-		`{"title":"hi","markdown_content":"too short"}`)
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], `{"title":"hi","markdown_content":"too short"}`, "", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status: got %d, want 400", rec.Code)
 	}
@@ -731,8 +797,7 @@ func TestCreatePostValidationEnvelope(t *testing.T) {
 func TestCreatePostSlugAutoSuffix(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"Hello World","markdown_content":"the markdown body","category_id":1}`
-
-	rec := doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body)
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body, "", nil)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("first: got %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -746,7 +811,7 @@ func TestCreatePostSlugAutoSuffix(t *testing.T) {
 		t.Errorf("first slug: got %q, want hello-world", first.Slug)
 	}
 
-	rec = doJSON(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body)
+	rec = doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body, "", nil)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("second: got %d, body=%s", rec.Code, rec.Body.String())
 	}

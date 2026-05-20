@@ -27,6 +27,7 @@ import (
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	securityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/security"
 	categoriesRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	"github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortLinksRepository "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -36,9 +37,16 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/router"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
+	"github.com/vpramatarov/micro-blog/internal/imagex"
+	jobsWorker "github.com/vpramatarov/micro-blog/internal/jobs"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
+	"github.com/vpramatarov/micro-blog/internal/uploads"
 	_ "modernc.org/sqlite"
 )
+
+// uploadsDir is where post featured images and their variants live on disk.
+// Relative to the server's CWD; the same value is passed to the static-file handler so /uploads/* serves what the storage layer wrote.
+const uploadsDir string = "./uploads"
 
 func main() {
 	// cancel resouces
@@ -70,6 +78,9 @@ func main() {
 	shortLinksRepo := shortLinksRepository.New(db)
 	categoriesRepo := categoriesRepository.New(db)
 	tagsRepo := tagRepository.New(db)
+	jobsRepo := jobs.New(db)
+
+	storage := uploads.New(uploadsDir)
 
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
 		Issuer:   cfg.JWTIssuer,
@@ -83,11 +94,23 @@ func main() {
 
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, logger)
-	postsSrvc := postService.New(postsRepo, categoriesRepo, tagsRepo, encoder, logger)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, tagsRepo, storage, jobsRepo, encoder, logger)
 	docsSrvc := docsService.New(issuer, logger)
 	shortLinksSrvc := shortLinkService.New(shortLinksRepo, encoder, logger)
 	categorySrvc := categoryService.New(categoriesRepo, logger)
 	tagSrvc := tagService.New(tagsRepo, logger)
+
+	// Job worker — recovers any stuck 'running' rows from a previous crash, then polls forever.
+	// The worker's context is the same SIGINT/SIGTERM context the HTTP server uses, so Ctrl+C stops both cleanly.
+	if n, err := jobsRepo.ResetStuckRunning(ctx); err != nil {
+		logger.Warn("reset stuck jobs", "err", err)
+	} else if n > 0 {
+		logger.Info("requeued stuck jobs", "count", n)
+	}
+
+	worker := jobsWorker.NewWorker(jobsRepo, logger)
+	worker.Register("image_variants", imagex.NewVariantsHandler(storage, logger))
+	go worker.Run(ctx)
 
 	// Mountable middlewares.
 	authMiddleware := authMW.Authenticate(issuer, logger)

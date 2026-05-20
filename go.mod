@@ -3,6 +3,7 @@ module github.com/vpramatarov/micro-blog
 go 1.26.3
 
 require (
+	github.com/disintegration/imaging v1.6.2
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.1
@@ -10,7 +11,10 @@ require (
 	modernc.org/sqlite v1.50.0
 )
 
-require go.yaml.in/yaml/v2 v2.4.2 // indirect
+require (
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8 // indirect
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

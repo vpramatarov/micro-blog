@@ -6,23 +6,32 @@ package posts
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 	categoryRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	"github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	tagRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	"github.com/vpramatarov/micro-blog/internal/auth"
+	"github.com/vpramatarov/micro-blog/internal/imagex"
 	"github.com/vpramatarov/micro-blog/internal/markdown"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	"github.com/vpramatarov/micro-blog/internal/slug"
+	"github.com/vpramatarov/micro-blog/internal/uploads"
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
 const roleAuthor string = "Author"
+
+// MultipartBodyLimit caps the multipart body for write endpoints. 5 MiB image payload + ~64 KiB envelope for form boundary + the JSON `data` field.
+const MultipartBodyLimit = 5*1024*1024 + 64*1024
 
 // PostResponse is the wire-format view: the scalar post columns plus the hydrated category and tags.
 // The embedded postRepository.Post is flattened by encoding/json so the JSON shape is the union of fields, not a nested `post` object.
@@ -36,10 +45,11 @@ type PostResponse struct {
 }
 
 type postWriteRequest struct {
-	Title      string  `json:"title"`
-	Markdown   string  `json:"markdown_content"`
-	CategoryID int64   `json:"category_id"`
-	TagIDs     []int64 `json:"tag_ids"`
+	Title               string  `json:"title"`
+	Markdown            string  `json:"markdown_content"`
+	CategoryID          int64   `json:"category_id"`
+	TagIDs              []int64 `json:"tag_ids"`
+	RemoveFeaturedImage bool    `json:"remove_featured_image"`
 }
 
 func (r *postWriteRequest) normalize() {
@@ -64,16 +74,34 @@ type Service struct {
 	Posts      *postRepository.Repo
 	Categories *categoryRepository.Repo
 	Tags       *tagRepository.Repo
+	Storage    *uploads.Storage
+	Jobs       *jobs.Repo
 	Encoder    *shortcode.Encoder
 	Log        *slog.Logger
 }
 
-func New(repo *postRepository.Repo, categoriesRepo *categoryRepository.Repo, tagsRepo *tagRepository.Repo, encoder *shortcode.Encoder, log *slog.Logger) *Service {
+func New(
+	repo *postRepository.Repo,
+	categoriesRepo *categoryRepository.Repo,
+	tagsRepo *tagRepository.Repo,
+	storage *uploads.Storage,
+	jobsRepo *jobs.Repo,
+	encoder *shortcode.Encoder,
+	log *slog.Logger,
+) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
 
-	return &Service{Posts: repo, Categories: categoriesRepo, Tags: tagsRepo, Encoder: encoder, Log: log}
+	return &Service{
+		Posts:      repo,
+		Categories: categoriesRepo,
+		Tags:       tagsRepo,
+		Storage:    storage,
+		Jobs:       jobsRepo,
+		Encoder:    encoder,
+		Log:        log,
+	}
 }
 
 // List — GET /posts. Public. Returns every post with a hashid `code` callers can use against GET /posts/{code}. Paginated via ?page / ?per_page.
@@ -247,9 +275,8 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req postWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
+	req, fileHeader, ok := s.parsePostMultipart(w, r)
+	if !ok {
 		return
 	}
 
@@ -278,11 +305,36 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Image is validated AND saved BEFORE the DB INSERT so any failure (bad format, too small, disk full) surfaces as a clean 4xx with no post row to clean up.
+	// The reverse — INSERT first, file last — would leave orphaned rows on every image-validation error.
+	var imagePath string
+	if fileHeader != nil {
+		encoded, format, ext, imgOK := s.readAndValidateImage(w, fileHeader)
+		if !imgOK {
+			return
+		}
+
+		imagePath, imgOK = s.saveImageAndEnqueue(w, r, fileHeader, encoded, format, ext)
+		if !imgOK {
+			return
+		}
+	}
+
 	id, err := s.createWithSlug(r, postRepository.PostInsert{
 		AuthorID: claims.UserID, CategoryID: req.CategoryID,
-		Title: req.Title, Markdown: req.Markdown, HTML: html, Slug: base,
+		Title: req.Title, Markdown: req.Markdown, HTML: html,
+		Slug: base, FeaturedImagePath: imagePath,
 	})
 	if err != nil {
+		// Roll the image back so we don't leak orphans on a failed INSERT.
+		if imagePath != "" {
+			err := s.Storage.DeleteAll(imagePath)
+			if err != nil {
+				// just log for now.
+				s.Log.Warn("rollback image", "err", err, "image_path", imagePath)
+			}
+		}
+
 		s.Log.Error("create post", "err", err, "user_id", claims.UserID)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create post")
 		return
@@ -300,6 +352,10 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 
 // Update — PUT /admin/posts/{id}. Bouncer enforces ownership for Authors;
 // Admin/Editor pass through to any post. Returns the updated post.
+// Image semantics:
+//   - file part present                  → REPLACE the existing image
+//   - data.remove_featured_image == true → DELETE the existing image
+//   - neither                            → KEEP the existing image
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -307,9 +363,8 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req postWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
+	req, fileHeader, ok := s.parsePostMultipart(w, r)
+	if !ok {
 		return
 	}
 
@@ -324,6 +379,21 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load the existing row up front — we need its current featured_image_path
+	// to decide whether to delete on disk after the UPDATE succeeds (replace + clear branches).
+	existing, err := s.Posts.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, postRepository.ErrPostNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
+			return
+		}
+
+		s.Log.Error("get post for update", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update post")
+		return
+	}
+	oldPath := existing.FeaturedImagePath
+
 	html, err := markdown.Render(req.Markdown)
 	if err != nil {
 		s.Log.Error("render markdown", "err", err)
@@ -337,9 +407,39 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the new image path before touching the DB. Possible outcomes:
+	//   replace: newPath = freshly-saved path, deleteOld = oldPath
+	//   clear  : newPath = "",                deleteOld = oldPath
+	//   keep   : newPath = oldPath,           deleteOld = ""
+	var newPath, deleteOld string
+	switch {
+	case fileHeader != nil:
+		encoded, format, ext, imgOK := s.readAndValidateImage(w, fileHeader)
+		if !imgOK {
+			return
+		}
+		path, imgOK := s.saveImageAndEnqueue(w, r, fileHeader, encoded, format, ext)
+		if !imgOK {
+			return
+		}
+		newPath = path
+		deleteOld = oldPath
+	case req.RemoveFeaturedImage:
+		newPath = ""
+		deleteOld = oldPath
+	default:
+		newPath = oldPath
+	}
+
 	if err := s.updateWithSlug(r, id, postRepository.PostUpdate{
-		CategoryID: req.CategoryID, Title: req.Title, Markdown: req.Markdown, HTML: html, Slug: base,
+		CategoryID: req.CategoryID, Title: req.Title, Markdown: req.Markdown, HTML: html, Slug: base, FeaturedImagePath: newPath,
 	}); err != nil {
+		// Roll back any freshly-saved image on UPDATE failure so we don't leak orphans.
+		// We deliberately do NOT touch oldPath here — the existing post still references it.
+		if newPath != "" && newPath != oldPath {
+			_ = s.Storage.DeleteAll(newPath)
+		}
+
 		if errors.Is(err, postRepository.ErrPostNotFound) {
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
 			return
@@ -348,6 +448,20 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		s.Log.Error("update post", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update post")
 		return
+	}
+
+	// Tag set is rewritten unconditionally on update — pass nil to clear.
+	if err := s.Tags.ReplaceForPost(r.Context(), id, req.TagIDs); err != nil {
+		s.Log.Error("replace tags", "err", err, "post_id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tags")
+		return
+	}
+
+	if deleteOld != "" {
+		if err := s.Storage.DeleteAll(deleteOld); err != nil {
+			// Don't fail the request — the row already changed. Log so it can be reaped manually if it ever matters.
+			s.Log.Warn("delete old featured image", "err", err, "path", deleteOld)
+		}
 	}
 
 	view, err := s.loadView(r, id)
@@ -369,6 +483,18 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	existing, err := s.Posts.GetByID(r.Context(), id)
+	if err != nil && !errors.Is(err, postRepository.ErrPostNotFound) {
+		s.Log.Error("get post for delete", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not delete post")
+		return
+	}
+
+	var imagePath string
+	if existing != nil {
+		imagePath = existing.FeaturedImagePath
+	}
+
 	if err := s.Posts.Delete(r.Context(), id); err != nil {
 		if errors.Is(err, postRepository.ErrPostNotFound) {
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
@@ -378,6 +504,12 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 		s.Log.Error("delete post", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not delete post")
 		return
+	}
+
+	if imagePath != "" {
+		if err := s.Storage.DeleteAll(imagePath); err != nil {
+			s.Log.Warn("delete featured image files", "err", err, "path", imagePath)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -545,4 +677,112 @@ func (s *Service) validateTaxonomies(w http.ResponseWriter, r *http.Request, req
 	}
 
 	return true
+}
+
+// parsePostMultipart pulls the JSON fields out of the "data" form part and the optional "featured_image" file part.
+// Caps the body at MultipartBodyLimit via http.MaxBytesReader so a single endpoint can accept
+// a larger payload than the global LimitBody middleware while still being bounded.
+//
+// Returns (request, fileHeader, "", "", nil) on success when no file was uploaded;
+// (request, header, "", "", nil) when a file IS present.
+// The caller is responsible for reading + validating the file via header.Open().
+func (s *Service) parsePostMultipart(w http.ResponseWriter, r *http.Request) (postWriteRequest, *multipart.FileHeader, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, MultipartBodyLimit)
+	if err := r.ParseMultipartForm(MultipartBodyLimit); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			httpx.WriteError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "request body exceeds 5 MB limit")
+			return postWriteRequest{}, nil, false
+		}
+
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid multipart/form-data")
+		return postWriteRequest{}, nil, false
+	}
+
+	rawData := r.FormValue("data")
+	if rawData == "" {
+		httpx.WriteValidationError(w, map[string]string{"data": "is required (JSON-encoded post fields)"})
+		return postWriteRequest{}, nil, false
+	}
+
+	var req postWriteRequest
+	if err := json.Unmarshal([]byte(rawData), &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body",
+			"\"data\" form field is not valid JSON")
+		return postWriteRequest{}, nil, false
+	}
+
+	// Optional file part.
+	var header *multipart.FileHeader
+	if r.MultipartForm != nil {
+		if files, ok := r.MultipartForm.File["featured_image"]; ok && len(files) > 0 {
+			header = files[0]
+		}
+	}
+
+	return req, header, true
+}
+
+// readAndValidateImage reads the multipart file into memory, decodes it for validation, then re-encodes web-optimized.
+// Returns the encoded bytes plus the canonical format ("jpeg"|"png") and extension (".jpg"|".png").
+// On any error writes the response envelope and returns false.
+func (s *Service) readAndValidateImage(w http.ResponseWriter, header *multipart.FileHeader) (encoded []byte, format, ext string, ok bool) {
+	src, err := header.Open()
+	if err != nil {
+		s.Log.Error("open featured image", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not read uploaded file")
+		return nil, "", "", false
+	}
+	defer src.Close()
+
+	data, err := io.ReadAll(src)
+	if err != nil {
+		s.Log.Error("read featured image", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not read uploaded file")
+		return nil, "", "", false
+	}
+
+	img, format, ext, err := imagex.ValidateAndDecode(data)
+	if err != nil {
+		switch {
+		case errors.Is(err, imagex.ErrUnsupportedFormat):
+			httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "only jpeg and png images are accepted")
+		case errors.Is(err, imagex.ErrTooSmall):
+			httpx.WriteValidationError(w, map[string]string{"featured_image": "image must be at least 800x800 pixels"})
+		default:
+			httpx.WriteValidationError(w, map[string]string{"featured_image": "could not decode image"})
+		}
+
+		return nil, "", "", false
+	}
+
+	encoded, err = imagex.EncodeBytes(img, format)
+	if err != nil {
+		s.Log.Error("encode featured image", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not process image")
+		return nil, "", "", false
+	}
+
+	return encoded, format, ext, true
+}
+
+// saveImageAndEnqueue writes the encoded image to disk and queues the variant-generation job. Returns the relative path stored in the DB.
+func (s *Service) saveImageAndEnqueue(w http.ResponseWriter, r *http.Request, header *multipart.FileHeader, encoded []byte, format, ext string) (string, bool) {
+	relPath, err := s.Storage.SaveOriginal(time.Now().UTC(), header.Filename, ext, encoded)
+	if err != nil {
+		s.Log.Error("save original", "err", err, "filename", header.Filename)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not save image")
+		return "", false
+	}
+
+	payload, _ := json.Marshal(imagex.VariantsPayload{Path: relPath, Format: format})
+	if _, err := s.Jobs.Enqueue(r.Context(), "image_variants", payload); err != nil {
+		// Enqueue failed but the original is already on disk. Roll back the file so the post doesn't reference an image without variants.
+		_ = s.Storage.DeleteAll(relPath)
+		s.Log.Error("enqueue variants job", "err", err, "path", relPath)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not schedule image processing")
+		return "", false
+	}
+
+	return relPath, true
 }

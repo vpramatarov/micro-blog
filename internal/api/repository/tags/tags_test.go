@@ -123,6 +123,7 @@ func TestMissingTagIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing: %v", err)
 	}
+
 	if !reflect.DeepEqual(missing, []int64{999_999}) {
 		t.Errorf("got %v, want [999_999]", missing)
 	}
@@ -131,6 +132,7 @@ func TestMissingTagIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("none missing: %v", err)
 	}
+
 	if len(missing) != 0 {
 		t.Errorf("expected empty, got %v", missing)
 	}

@@ -34,6 +34,7 @@ var TableNames = []string{
 // migration 00004 and treated as reference data — leaving them in place keeps
 // the test DB consistent with production after the per-binary DownTo 0 -> Up cycle.
 var wipeTableNames = []string{
+	"jobs",
 	"post_tags",
 	"short_links",
 	"posts",

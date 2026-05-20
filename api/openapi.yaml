@@ -152,15 +152,15 @@ components:
         author_id: { type: integer, format: int64, example: 7 }
         author_name:
           type: string
-          example: "alice"
+          example: alice
           description: |
-            Username of the referenced row by `author_id`
+            Username of the row referenced by `author_id`.
         category_id: { type: integer, format: int64, example: 2 }
         category_name:
           type: string
           example: Engineering
           description: |
-            Name of the row referenced by `category_id`, hydrated server-side.
+            Name of the row referenced by `category_id`.
         title: { type: string, example: "Hello world" }
         slug:
           type: string
@@ -180,6 +180,53 @@ components:
             Tags attached to the post, keyed by numeric tag id (rendered as a
             JSON string key per the spec). Empty object when the post has no
             attached tags.
+        featured_image_path:
+          type: string
+          example: "2026/02/03/my-photo.jpg"
+          description: |
+            Relative path of the **original** uploaded featured image, served
+            at `GET /uploads/{featured_image_path}`. Omitted (or empty) when
+            the post has no featured image.
+
+            Three variants are also written to disk by an async worker:
+
+              small  (200×200, centered square)   suffix `-s`
+              medium (360×360, centered square)   suffix `-m`
+              large  (800×800, centered square)   suffix `-l`
+
+            Client constructs the variant URL by inserting the size suffix
+            before the file extension. Example for path
+            `2026/02/03/my-photo.jpg`:
+
+              small  → /uploads/2026/02/03/my-photo-s.jpg
+              medium → /uploads/2026/02/03/my-photo-m.jpg
+              large  → /uploads/2026/02/03/my-photo-l.jpg
+
+            Variants may 404 briefly after the upload until the worker has
+            generated them — clients fall back to the original via `onError`.
+
+    PostWriteRequest:
+      type: object
+      required: [title, markdown_content, category_id]
+      description: |
+        JSON-encoded payload sent as the `data` form field of a multipart
+        POST/PUT to `/admin/posts` (see those operations for the multipart
+        envelope).
+      properties:
+        title: { type: string, minLength: 3, maxLength: 200, example: "Hello world" }
+        markdown_content: { type: string, minLength: 10, example: "# Hello\n\nworld" }
+        category_id: { type: integer, format: int64, minimum: 1, example: 1 }
+        tag_ids:
+          type: array
+          items: { type: integer, format: int64 }
+          example: [3, 5]
+          description: Optional. Tag ids to attach to the post.
+        remove_featured_image:
+          type: boolean
+          default: false
+          description: |
+            PUT only. When true (and no `featured_image` file part is sent),
+            wipes the existing featured image from disk and nulls the column.
 
     Category:
       type: object
@@ -299,28 +346,6 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
-
-    PostWriteRequest:
-      type: object
-      required: [title, markdown_content, category_id]
-      properties:
-        title: { type: string, example: "Hello world" }
-        markdown_content:
-          type: string
-          example: "# Hello\n\nworld"
-          description: Source markdown. Rendered to `html_content` server-side.
-        category_id:
-          type: integer
-          format: int64
-          example: 2
-          description: Must point at an existing categories row.
-        tag_ids:
-          type: array
-          items: { type: integer, format: int64 }
-          example: [3, 5]
-          description: |
-            Optional. Replaces the post's tag set on update — pass an empty
-            array or omit to clear. Every id must exist in the tags table.
 
     CategoryWriteRequest:
       type: object
@@ -802,11 +827,30 @@ paths:
       operationId: createPost
       x-roles: [Author, Editor, Admin]
       summary: Create a post. Admin / Editor / Author allowed; Subscriber denied.
+      description: |
+        Accepts `multipart/form-data` only. The post body itself goes into a
+        `data` form field as a JSON string (see the `PostWriteRequest`
+        schema). An optional `featured_image` file part attaches a JPEG or
+        PNG (≤5 MB, min 800×800).
       requestBody:
         required: true
         content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PostWriteRequest' }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: string
+                  description: JSON-encoded `PostWriteRequest`.
+                featured_image:
+                  type: string
+                  format: binary
+                  description: |
+                    Optional. JPEG or PNG, ≤5 MB, min 800×800. Saved to disk
+                    under `./uploads/YYYY/MM/DD/<name>.<ext>`. Three centered-
+                    square variants (200/360/800) are generated by a
+                    background worker.
       responses:
         '201':
           description: Created post; `html_content` rendered from markdown.
@@ -816,6 +860,16 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: Multipart body exceeds the 5 MB cap.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Uploaded image is neither JPEG nor PNG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /admin/posts/{id}:
     put:
@@ -823,14 +877,30 @@ paths:
       operationId: updatePost
       x-roles: [Author, Editor, Admin]
       summary: Edit a post.
-      description: Admin / Editor edit any; Author edits own only.
+      description: |
+        Admin / Editor edit any; Author edits own only. Same multipart envelope
+        as `POST /admin/posts`. Image semantics:
+
+          * `featured_image` part present                → REPLACE old image
+          * `data.remove_featured_image` is true         → DELETE old image
+          * neither                                      → KEEP old image
       parameters:
         - $ref: '#/components/parameters/PathID'
       requestBody:
         required: true
         content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PostWriteRequest' }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: string
+                  description: JSON-encoded `PostWriteRequest`.
+                featured_image:
+                  type: string
+                  format: binary
+                  description: Optional. Same constraints as create.
       responses:
         '200':
           description: Updated post.
@@ -841,6 +911,16 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: Multipart body exceeds the 5 MB cap.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Uploaded image is neither JPEG nor PNG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     delete:
       tags: [posts]
       operationId: deletePost

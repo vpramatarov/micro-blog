@@ -89,7 +89,7 @@ func setupShortLinkEnv(t *testing.T) *shortLinkEnv {
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
 	categoriesSvc := categoriesh.New(categoriesRepo, nil)
-	postsSvc := postsh.New(postsRepo, categoriesRepo, nil, encoder, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, nil, nil, nil, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	r := router.New(

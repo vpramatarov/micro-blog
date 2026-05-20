@@ -10,6 +10,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
+	uploadsh "github.com/vpramatarov/micro-blog/internal/api/handlers/uploads"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 )
@@ -19,13 +20,14 @@ import (
 // nil is only acceptable on services whose routes are not exercised by the
 // caller (tests that, e.g., only hit /docs may pass nil for the others).
 type Services struct {
-	Auth       *auth.Service
-	Users      *users.Service
-	ShortLinks *shortlinks.Service
-	Posts      *posts.Service
-	Categories *categories.Service
-	Tags       *tags.Service
-	Docs       *docs.Service
+	Auth        *auth.Service
+	Users       *users.Service
+	ShortLinks  *shortlinks.Service
+	Posts       *posts.Service
+	Categories  *categories.Service
+	Tags        *tags.Service
+	Docs        *docs.Service
+	UploadsRoot string
 }
 
 // Middlewares bundles the route-scoped middleware the router needs to mount on
@@ -59,6 +61,7 @@ type Middlewares struct {
 //   - GET /s/{code}                     public — URL-shortener resolution; 302 to the stored original URL
 //   - GET /categories,
 //     GET /tags                         public — read-only taxonomy listings
+//   - GET /uploads/*                    public — static file serving for post featured images and variants
 //   - GET /openapi.yaml,
 //     GET /openapi.json,
 //     GET /docs                         public — OpenAPI spec + Swagger UI
@@ -107,6 +110,12 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	// Public taxonomy reads.
 	r.Get("/categories", srvc.Categories.List)
 	r.Get("/tags", srvc.Tags.List)
+
+	// Public static asset serving for uploaded post images. The handler rejects path traversal and 404s for missing files.
+	// Skipped entirely when UploadsRoot is empty (tests that don't exercise uploads).
+	if srvc.UploadsRoot != "" {
+		r.Get("/uploads/*", uploadsh.Handler(srvc.UploadsRoot))
+	}
 
 	// API documentation
 	// /openapi.yaml is the canonical spec;

@@ -161,8 +161,8 @@ func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(ids))
-	for _, id := range ids {
-		args = append(args, id)
+	for i, id := range ids {
+		args[i] = id
 	}
 
 	q := fmt.Sprintf(`SELECT id FROM %s WHERE id IN (%s)`, DB_TABLE, placeholders)
@@ -178,6 +178,7 @@ func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("scan tag id: %w", err)
 		}
+
 		present[id] = struct{}{}
 	}
 
@@ -245,8 +246,8 @@ func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]T
 	placeholders := strings.Repeat("?,", len(postIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(postIDs))
-	for _, id := range postIDs {
-		args = append(args, id)
+	for i, id := range postIDs {
+		args[i] = id
 	}
 
 	q := fmt.Sprintf(`

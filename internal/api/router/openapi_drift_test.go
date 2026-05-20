@@ -28,7 +28,7 @@ import (
 func buildRouter() *chi.Mux {
 	authSvc := authh.New(&config.Config{}, nil, nil, nil, nil)
 	usersSvc := usersh.New(&config.Config{}, nil, nil, nil)
-	postsSvc := postsh.New(nil, nil, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil, nil, nil, nil)
 	shortlinksSvc := shortlinksh.New(nil, nil, nil)
 	docsSvc := docsh.New(nil, nil)
 	categoriesSvc := categoriesh.New(nil, nil)
