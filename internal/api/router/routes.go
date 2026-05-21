@@ -58,7 +58,7 @@ type Middlewares struct {
 //   - GET /posts                        public — list posts (every response item carries a hashid `code` AND a `slug`)
 //   - GET /posts/{slug}                 public — read a post by its auto-generated slug
 //   - GET /p/{code}                     public — read a post by its sqids hashid (was /posts/{code} pre-categories)
-//   - GET /s/{code}                     public — URL-shortener resolution; 302 to the stored original URL
+//   - GET /s/{code}                     public — URL-shortener resolution; 302 to same-origin targets, HTML template for exernal hosts
 //   - GET /categories,
 //     GET /tags                         public — read-only taxonomy listings
 //   - GET /uploads/*                    public — static file serving for post featured images and variants

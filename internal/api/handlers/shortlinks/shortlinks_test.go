@@ -155,7 +155,7 @@ func TestCreateShortLinkRoles(t *testing.T) {
 		})
 	}
 
-	// No token → 401.
+	// No token -> 401.
 	rec := doJSON(t, env.srv, http.MethodPost, "/api/shortlinks", "", body)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("no token: got %d, want 401", rec.Code)
@@ -285,25 +285,25 @@ func TestUpdateShortLinkOwnership(t *testing.T) {
 
 	body := `{"original_url":"https://example.com/changed"}`
 
-	// Author own → 200.
+	// Author own -> 200.
 	rec := doJSON(t, env.srv, http.MethodPut, fmt.Sprintf("/api/shortlinks/%d", authorLink), env.tokens["Author"], body)
 	if rec.Code != http.StatusOK {
 		t.Errorf("author own: got %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Editor other's → 403 (scope='own' for shortlink:edit).
+	// Editor other's -> 403 (scope='own' for shortlink:edit).
 	rec = doJSON(t, env.srv, http.MethodPut, fmt.Sprintf("/api/shortlinks/%d", authorLink), env.tokens["Editor"], body)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("editor foreign: got %d, want 403", rec.Code)
 	}
 
-	// Admin → 200 regardless of owner.
+	// Admin -> 200 regardless of owner.
 	rec = doJSON(t, env.srv, http.MethodPut, fmt.Sprintf("/api/shortlinks/%d", authorLink), env.tokens["Admin"], body)
 	if rec.Code != http.StatusOK {
 		t.Errorf("admin foreign: got %d, want 200", rec.Code)
 	}
 
-	// Subscriber → 403 (no permission at all).
+	// Subscriber -> 403 (no permission at all).
 	rec = doJSON(t, env.srv, http.MethodPut, fmt.Sprintf("/api/shortlinks/%d", authorLink), env.tokens["Subscriber"], body)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("subscriber: got %d, want 403", rec.Code)
@@ -326,7 +326,7 @@ func TestUpdateShortLinkValidation(t *testing.T) {
 		t.Errorf("bad url: got %d, want 400", rec.Code)
 	}
 
-	// Admin updating a missing row → 404 (bouncer bypasses ownership for Admin).
+	// Admin updating a missing row -> 404 (bouncer bypasses ownership for Admin).
 	rec = doJSON(t, env.srv, http.MethodPut, "/api/shortlinks/99999",
 		env.tokens["Admin"], `{"original_url":"https://example.com/x"}`)
 	if rec.Code != http.StatusNotFound {
@@ -344,13 +344,13 @@ func TestDeleteShortLinkOwnership(t *testing.T) {
 	}
 
 	path := fmt.Sprintf("/api/shortlinks/%d", id)
-	// Editor (own='own' so foreign → 403).
+	// Editor (own='own' so foreign -> 403).
 	rec := doJSON(t, env.srv, http.MethodDelete, path, env.tokens["Editor"], "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("editor foreign delete: got %d, want 403", rec.Code)
 	}
 
-	// Author owns it → 204.
+	// Author owns it -> 204.
 	rec = doJSON(t, env.srv, http.MethodDelete, path, env.tokens["Author"], "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("author own delete: got %d, want 204", rec.Code)
@@ -360,9 +360,8 @@ func TestDeleteShortLinkOwnership(t *testing.T) {
 		t.Errorf("expected ErrShortLinkNotFound, got %v", err)
 	}
 
-	// Re-delete → bouncer's OwnerLookup returns ErrShortLinkNotFound which it
-	// treats as a denial → 403 for the Author (no scope='all'). Admin would
-	// get a 404 because their scope='all' bypasses OwnerLookup and the handler then sees the missing row.
+	// Re-delete -> bouncer's OwnerLookup returns ErrShortLinkNotFound which it treats as a denial -> 403 for the Author (no scope='all').
+	// Admin would get a 404 because their scope='all' bypasses OwnerLookup and the handler then sees the missing row.
 	rec = doJSON(t, env.srv, http.MethodDelete, path, env.tokens["Author"], "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("re-delete as author: got %d, want 403", rec.Code)
@@ -397,13 +396,13 @@ func TestResolveShortLinkPublic(t *testing.T) {
 		t.Errorf("Location: got %q, want %q", loc, "https://example.com/destination")
 	}
 
-	// Bad code → 404.
+	// Bad code -> 404.
 	rec = doJSON(t, env.srv, http.MethodGet, "/s/!!!", "", "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("bad code: got %d, want 404", rec.Code)
 	}
 
-	// Valid-shape code that decodes to a non-existent id → 404.
+	// Valid-shape code that decodes to a non-existent id -> 404.
 	missingCode, _ := env.encoder.Encode(99999)
 	rec = doJSON(t, env.srv, http.MethodGet, "/s/"+missingCode, "", "")
 	if rec.Code != http.StatusNotFound {
@@ -449,14 +448,75 @@ func TestCreateShortLinkValidationEnvelope(t *testing.T) {
 	})
 }
 
-type validationResp struct {
-	Error   string            `json:"error"`
-	Message string            `json:"message"`
-	Fields  map[string]string `json:"fields"`
+// TestResolveShortLinkExternalStateTemplate confirms that a target whose host differs from request's host triggers the click-through warning instead of a 302.
+func TestResolveShortLinkExternalStateTemplate(t *testing.T) {
+	env := setupShortLinkEnv(t)
+	ctx := t.Context()
+	id, err := env.repo.Create(ctx, env.userID["Admin"], "https://attacker.example.org/phishing?q=1")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	code, _ := env.encoder.Encode(id)
+	rec := doJSON(t, env.srv, http.MethodGet, "/s/"+code, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status template: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type: got %q, want text/html prefix", ct)
+	}
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control: got %q, want no-store", cc)
+	}
+
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("Location: got %q, want empty (no redirect on state template)", loc)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "attaker.example.org") {
+		t.Errorf("state template body missing destination host; body=%s", body)
+	}
+
+	if !strings.Contains(body, `rel="noopener noreferrer"`) {
+		t.Errorf("state template body missing rel=noopener noreferrer; body=%s", body)
+	}
+
+	if !strings.Contains(body, "https://attacker.example.org/phishing?q=1") {
+		t.Errorf("state template body missing full URL; body=%s", body)
+	}
+}
+
+// TestResolveShortLinkSameHostStillRedirects pins the same-origin shortcut: when the target host matches r.Host, the 302 behavior is preserved.
+func TestResolveShortLinkSameHostStillRedirects(t *testing.T) {
+	env := setupShortLinkEnv(t)
+	ctx := t.Context()
+
+	id, err := env.repo.Create(ctx, env.userID["Admin"], "https://example.com/internal")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	code, _ := env.encoder.Encode(id)
+	rec := doJSON(t, env.srv, http.MethodGet, "/s/"+code, "", "")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("same-host: got %d, want 302; body=%s", rec.Code, rec.Body.String())
+	}
+
+	if loc := rec.Header().Get("Location"); loc != "https://example.com/internal" {
+		t.Errorf("Location: got %q, want https://example.com/internal", loc)
+	}
 }
 
 func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	t.Helper()
+	type validationResp struct {
+		Error   string            `json:"error"`
+		Message string            `json:"message"`
+		Fields  map[string]string `json:"fields"`
+	}
 	var v validationResp
 	if err := json.Unmarshal(body, &v); err != nil {
 		t.Fatalf("decode validation response: %v; body=%s", err, string(body))

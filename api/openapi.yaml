@@ -554,13 +554,23 @@ paths:
       tags: [public, shortlinks]
       operationId: resolveShortLink
       x-roles: [anonymous, Subscriber, Author, Editor, Admin]
-      summary: Decode a hashid and redirect to the stored URL.
+      summary: Decode a hashid and resolve to the stored URL.
+      description: |
+        Same-origin targets (target host matches the requests "Host" header) 302 redirect directly.
+        External targets render an HTML state template page that surfaces the destination host before the user clicks through.
       security: []
       parameters:
         - $ref: '#/components/parameters/PathCode'
       responses:
+        '200':
+          description: |
+            HTML state template page warning the user about an external host.
+            Returned when the target host differs from the request host.
+          content:
+            text/html:
+              schema: {type: string}
         '302':
-          description: Redirect to the original URL.
+          description: Redirect to the original URL. Returned only when the target host mathes the request host (same-origin).
           headers:
             Location:
               description: Original URL stored against this code.

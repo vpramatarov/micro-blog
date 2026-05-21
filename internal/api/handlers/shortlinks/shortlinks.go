@@ -6,7 +6,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
+	"text/template"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
@@ -17,6 +19,29 @@ import (
 )
 
 const roleAdmin string = "Admin"
+
+var stateTemplate = template.Must(template.New("stateTemplate").Parse(`
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>External Link</title>
+</head>
+<body>
+<h1>You are leaving this site</h1>
+<p>This shortened link will take you to external website:</p>
+<p><strong>{{ .Host }}</strong></p>
+<p>Full URL: <code>{{ .URL }}</code></p>
+<p><a href="{{ .URL }}" rel="noopener noreferrer">Continue to {{ .Host }}</a></p>
+<p><small>If you did not expect this, close this page.</small></p>
+</body>
+</html>
+`))
+
+type stateTemplateData struct {
+	URL  string
+	Host string
+}
 
 type shortLinkWriteRequest struct {
 	OriginalURL string `json:"original_url"`
@@ -72,7 +97,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.attachCodes(links)
+	s.hydrateMany(links)
 	httpx.WriteJSON(w, http.StatusOK, httpx.Page[shortLinksRepo.ShortLink]{
 		Items: links, Page: page, PerPage: perPage, Total: total,
 	})
@@ -113,7 +138,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.attachCode(link)
+	s.hydrateOne(link)
 	httpx.WriteJSON(w, http.StatusCreated, link)
 }
 
@@ -155,7 +180,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.attachCode(link)
+	s.hydrateOne(link)
 	httpx.WriteJSON(w, http.StatusOK, link)
 }
 
@@ -209,10 +234,32 @@ func (s *Service) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, link.OriginalURL, http.StatusFound)
+	target, err := url.Parse(link.OriginalURL)
+	if err != nil || target.Host == "" {
+		s.Log.Error("invalid stored short link URL", "err", err, "id", id, "url", link.OriginalURL)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not resolve short link")
+		return
+	}
+
+	if strings.EqualFold(strings.TrimSpace(r.Host), strings.TrimSpace(target.Host)) {
+		http.Redirect(w, r, link.OriginalURL, http.StatusFound)
+		return
+	}
+
+	s.renderStateTemplate(w, target)
 }
 
-func (s *Service) attachCodes(links []shortLinksRepo.ShortLink) {
+func (s *Service) renderStateTemplate(w http.ResponseWriter, target *url.URL) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "no-index, follow")
+	w.WriteHeader(http.StatusOK)
+	if err := stateTemplate.Execute(w, stateTemplateData{URL: target.String(), Host: target.Host}); err != nil {
+		s.Log.Error("render shortlink state template", "err", err)
+	}
+}
+
+func (s *Service) hydrateMany(links []shortLinksRepo.ShortLink) {
 	if s.Encoder == nil {
 		return
 	}
@@ -224,7 +271,7 @@ func (s *Service) attachCodes(links []shortLinksRepo.ShortLink) {
 	}
 }
 
-func (s *Service) attachCode(link *shortLinksRepo.ShortLink) {
+func (s *Service) hydrateOne(link *shortLinksRepo.ShortLink) {
 	if s.Encoder == nil || link == nil {
 		return
 	}
