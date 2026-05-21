@@ -476,7 +476,7 @@ func TestResolveShortLinkExternalStateTemplate(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "attaker.example.org") {
+	if !strings.Contains(body, "attacker.example.org") {
 		t.Errorf("state template body missing destination host; body=%s", body)
 	}
 
