@@ -109,8 +109,7 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// UpdateTag pre-checks existence (same SQLite RowsAffected quirk as
-// elsewhere) before issuing the UPDATE.
+// UpdateTag pre-checks existence (same SQLite RowsAffected quirk as elsewhere) before issuing the UPDATE.
 func (r *Repo) Update(ctx context.Context, id int64, name string) error {
 	if _, err := r.GetByID(ctx, id); err != nil {
 		return err
@@ -129,8 +128,7 @@ func (r *Repo) Update(ctx context.Context, id int64, name string) error {
 	return nil
 }
 
-// DeleteTag removes the tag. post_tags rows referencing it cascade away
-// automatically via the FK ON DELETE CASCADE — no in-use error here.
+// DeleteTag removes the tag. post_tags rows referencing it cascade away automatically via the FK ON DELETE CASCADE — no in-use error here.
 func (r *Repo) Delete(ctx context.Context, id int64) error {
 	q := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, DB_TABLE)
 	res, err := r.db.ExecContext(ctx, q, id)
@@ -150,9 +148,8 @@ func (r *Repo) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// MissingIDs returns the subset of `ids` that do NOT exist in the tags
-// table. Empty slice means all ids are valid. Used by the posts handler to
-// validate the `tag_ids` field in one round-trip before insert.
+// MissingIDs returns the subset of `ids` that do NOT exist in the tags table.
+// Empty slice means all ids are valid. Used by the posts handler to validate the `tag_ids` field in one round-trip before insert.
 func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -230,9 +227,9 @@ func (r *Repo) ListForPost(ctx context.Context, postID int64) ([]Tag, error) {
 	return out, nil
 }
 
-// ListForPosts batches ListForPost across a slice of post ids in one
-// round-trip, returning a map keyed by post id. Every input id is present in
-// the map (possibly with an empty slice). Used by the posts handler to hydrate list responses without an N+1.
+// ListForPosts batches ListForPost across a slice of post ids in one round-trip, returning a map keyed by post id.
+// Every input id is present in the map (possibly with an empty slice).
+// Used by the posts handler to hydrate list responses without an N+1.
 func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]Tag, error) {
 	out := make(map[int64][]Tag, len(postIDs))
 	for _, id := range postIDs {
@@ -282,9 +279,9 @@ func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]T
 	return out, nil
 }
 
-// ReplaceForPost atomically rewrites the join rows for `postID`: deletes
-// every existing row, then inserts one per tag in `tagIDs`. Idempotent — call
-// with an empty slice to clear the tag set. Wrapped in a transaction so a partial failure leaves the row set unchanged.
+// ReplaceForPost atomically rewrites the join rows for `postID`:  deletes every existing row, then inserts one per tag in `tagIDs`.
+// Idempotent — call with an empty slice to clear the tag set.
+// Wrapped in a transaction so a partial failure leaves the row set unchanged.
 func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -302,16 +299,30 @@ func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64)
 
 	if len(tagIDs) > 0 {
 		// Deduplicate to avoid PRIMARY KEY collisions on (post_id, tag_id).
-		seen := make(map[int64]struct{}, len(tagIDs))
+		count := len(tagIDs)
+		seen := make(map[int64]struct{}, count)
+		unique := make([]int64, 0, count)
 		for _, tagID := range tagIDs {
-			if _, dup := seen[tagID]; dup {
+			if _, duplicate := seen[tagID]; duplicate {
 				continue
 			}
 
 			seen[tagID] = struct{}{}
-			q := fmt.Sprintf(`INSERT INTO %s (post_id, tag_id) VALUES (?, ?)`, POST_TAG_TABLE)
-			if _, err := tx.ExecContext(ctx, q, postID, tagID); err != nil {
-				return fmt.Errorf("insert post tag: %w", err)
+			unique = append(unique, tagID)
+		}
+
+		uniqueCount := len(unique)
+
+		if uniqueCount > 0 {
+			placeholders := strings.TrimSuffix(strings.Repeat("(?, ?),", uniqueCount), ",")
+			args := make([]any, 0, 2*uniqueCount)
+			for _, tagID := range unique {
+				args = append(args, postID, tagID)
+			}
+
+			q := fmt.Sprintf(`INSERT INTO %s (post_id, tag_id) VALUES %s`, POST_TAG_TABLE, placeholders)
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+				return fmt.Errorf("insert post tags: %w", err)
 			}
 		}
 	}
