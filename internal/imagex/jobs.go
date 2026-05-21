@@ -1,6 +1,7 @@
 package imagex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,7 +39,7 @@ func NewVariantsHandler(store *uploads.Storage, log *slog.Logger) func(ctx conte
 			return fmt.Errorf("imagex: read original: %w", err)
 		}
 
-		img, _, _, err := ValidateAndDecode(data)
+		img, _, _, err := ValidateAndDecode(bytes.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("imagex: decode original: %w", err)
 		}

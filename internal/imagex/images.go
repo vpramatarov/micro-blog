@@ -40,17 +40,8 @@ var VariantSizes = []struct {
 
 // ValidateAndDecode parses data, returning the decoded image, the canonical format string ("jpeg" or "png"),
 // and the canonical lowercase extension (".jpg" or ".png"). EXIF orientation is applied automatically.
-func ValidateAndDecode(data []byte) (image.Image, string, string, error) {
-	// imaging.Decode auto-detects the format and consumes EXIF orientation when AutoOrientation(true) is set.
-	// It also normalizes the underlying image type to *image.NRGBA, which simplifies downstream encoding.
-	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
-	if err != nil {
-		return nil, "", "", fmt.Errorf("%w: %v", ErrDecode, err)
-	}
-
-	// We need the format separately from imaging.Decode (it doesn't return it).
-	// Use image.DecodeConfig on a fresh reader — same bytes, only reads the header.
-	_, format, err := image.DecodeConfig(bytes.NewReader(data))
+func ValidateAndDecode(r io.ReadSeeker) (image.Image, string, string, error) {
+	_, format, err := image.DecodeConfig(r)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%w: %v", ErrDecode, err)
 	}
@@ -63,6 +54,17 @@ func ValidateAndDecode(data []byte) (image.Image, string, string, error) {
 		ext = ".png"
 	default:
 		return nil, "", "", fmt.Errorf("%w: got %q", ErrUnsupportedFormat, format)
+	}
+
+	// Rewind the decode. imaging.Decode auto-detects the format and consumes EXIF orientation when AutoOrientation(true) is set.
+	// It also normalizes the underlying image type to *image.NRGBA, which simplifies downstream encoding.
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return nil, "", "", fmt.Errorf("%w: rewind for decode: %v", ErrDecode, err)
+	}
+
+	img, err := imaging.Decode(r, imaging.AutoOrientation(true))
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %v", ErrDecode, err)
 	}
 
 	bounds := img.Bounds()

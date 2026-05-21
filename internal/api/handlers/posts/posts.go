@@ -6,7 +6,6 @@ package posts
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -735,25 +734,20 @@ func (s *Service) readAndValidateImage(w http.ResponseWriter, header *multipart.
 	}
 	defer src.Close()
 
-	data, err := io.ReadAll(src)
+	img, format, ext, err := imagex.ValidateAndDecode(src)
 	if err != nil {
-		s.Log.Error("read featured image", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not read uploaded file")
-		return nil, "", "", false
-	}
+		if err != nil {
+			switch {
+			case errors.Is(err, imagex.ErrUnsupportedFormat):
+				httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "only jpeg and png images are accepted")
+			case errors.Is(err, imagex.ErrTooSmall):
+				httpx.WriteValidationError(w, map[string]string{"featured_image": "image must be at least 800x800 pixels"})
+			default:
+				httpx.WriteValidationError(w, map[string]string{"featured_image": "could not decode image"})
+			}
 
-	img, format, ext, err := imagex.ValidateAndDecode(data)
-	if err != nil {
-		switch {
-		case errors.Is(err, imagex.ErrUnsupportedFormat):
-			httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "only jpeg and png images are accepted")
-		case errors.Is(err, imagex.ErrTooSmall):
-			httpx.WriteValidationError(w, map[string]string{"featured_image": "image must be at least 800x800 pixels"})
-		default:
-			httpx.WriteValidationError(w, map[string]string{"featured_image": "could not decode image"})
+			return nil, "", "", false
 		}
-
-		return nil, "", "", false
 	}
 
 	encoded, err = imagex.EncodeBytes(img, format)
