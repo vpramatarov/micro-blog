@@ -736,18 +736,16 @@ func (s *Service) readAndValidateImage(w http.ResponseWriter, header *multipart.
 
 	img, format, ext, err := imagex.ValidateAndDecode(src)
 	if err != nil {
-		if err != nil {
-			switch {
-			case errors.Is(err, imagex.ErrUnsupportedFormat):
-				httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "only jpeg and png images are accepted")
-			case errors.Is(err, imagex.ErrTooSmall):
-				httpx.WriteValidationError(w, map[string]string{"featured_image": "image must be at least 800x800 pixels"})
-			default:
-				httpx.WriteValidationError(w, map[string]string{"featured_image": "could not decode image"})
-			}
-
-			return nil, "", "", false
+		switch {
+		case errors.Is(err, imagex.ErrUnsupportedFormat):
+			httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "only jpeg and png images are accepted")
+		case errors.Is(err, imagex.ErrTooSmall):
+			httpx.WriteValidationError(w, map[string]string{"featured_image": "image must be at least 800x800 pixels"})
+		default:
+			httpx.WriteValidationError(w, map[string]string{"featured_image": "could not decode image"})
 		}
+
+		return nil, "", "", false
 	}
 
 	encoded, err = imagex.EncodeBytes(img, format)
