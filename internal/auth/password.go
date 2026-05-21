@@ -2,12 +2,14 @@ package auth
 
 import "golang.org/x/crypto/bcrypt"
 
+const PasswordCost int = 12
+
 // login uses it on the "email not found", so that still does one bcrypt comparisson to runs roughtly the same wall-clock time
 // as "email found, wrong password" preventing user-enumeration timing.
 var DummyHash = mustHash("dummy__login__timing__parity")
 
 func Hash(plaintext string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(plaintext), PasswordCost)
 	if err != nil {
 		return "", err
 	}
