@@ -23,11 +23,16 @@ type Job struct {
 
 // Repo wraps *sql.DB for the `jobs` table.
 type Repo struct {
-	db *sql.DB
+	db     *sql.DB
+	notify chan struct{}
 }
 
 func New(db *sql.DB) *Repo {
-	return &Repo{db: db}
+	return &Repo{db: db, notify: make(chan struct{}, 1)}
+}
+
+func (r *Repo) Notifications() <-chan struct{} {
+	return r.notify
 }
 
 // Enqueue inserts a new pending job. Returns the job id.
@@ -41,6 +46,12 @@ func (r *Repo) Enqueue(ctx context.Context, jobType string, payload []byte) (int
 	id, err := res.LastInsertId()
 	if err != nil {
 		return 0, fmt.Errorf("jobs: last insert id: %w", err)
+	}
+
+	// Non-blocking.
+	select {
+	case r.notify <- struct{}{}:
+	default:
 	}
 
 	return id, nil

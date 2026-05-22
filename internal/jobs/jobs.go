@@ -90,6 +90,7 @@ func (w *Worker) sleep(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 	case <-t.C:
+	case <-w.Repo.Notifications():
 	}
 }
 
