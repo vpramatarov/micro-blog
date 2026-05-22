@@ -47,7 +47,7 @@ func newRoleServer(t *testing.T) (*httptest.Server, *auth.Issuer) {
 	issuer := auth.NewIssuer("test-secret", 5*time.Minute, auth.IssuerOptions{})
 	r := chi.NewRouter()
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(authMW.Authenticate(issuer, nil))
+		r.Use(authMW.Authenticate(issuer, nil, nil))
 		r.Use(rbacMW.RequireRole("Admin", nil))
 		r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	})

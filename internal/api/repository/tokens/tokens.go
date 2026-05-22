@@ -13,6 +13,8 @@ var ErrRefreshTokenNotFound = errors.New("refresh token not found")
 
 const DB_TABLE string = "refresh_tokens"
 
+const REVOKED_JITS_TABLE string = "revoked_jtis"
+
 type Repo struct {
 	db *sql.DB
 }
@@ -108,4 +110,41 @@ func (r *Repo) RotateRefreshToken(ctx context.Context, oldHash string, userID in
 	}
 
 	return nil
+}
+
+// RevokeJTI adds an access-token identifier to the blocklist with its expiration timestamp.
+// Used by Logout.
+// Sweep expired rows on every Revoke so the table grows only with the rate of active logouts within the access-TTL window -
+// read path (IsJTIRevoked) stays write free.
+func (r *Repo) RevokeJTI(ctx context.Context, jti string, expire time.Time) error {
+	q := fmt.Sprintf("DELETE FROM %s WHERE exp < ?", REVOKED_JITS_TABLE)
+	if _, err := r.db.ExecContext(ctx, q, time.Now().UTC()); err != nil {
+		return fmt.Errorf("sweep expired revoked jtis: %w", err)
+	}
+
+	q = fmt.Sprintf("INSERT OR IGNORE INTO %s (jti, exp) VALUES (?, ?)", REVOKED_JITS_TABLE)
+	if _, err := r.db.ExecContext(ctx, q, jti, expire.UTC()); err != nil {
+		return fmt.Errorf("revoke jti: %w", err)
+	}
+
+	return nil
+}
+
+// IsJTIRevoked reports whether the given access-token identifier has been revoked (i.e. logged out).
+// The authenticate middleware calls this on every authenticated request.
+// Returns (false, nil) for missing rows; (true, nil) when the row exists regardless of whether it's already past `exp`
+// (it'll be swept the next time RevokeJTI runs, but until then we honour the revocation).
+func (r *Repo) IsJTIRevoked(ctx context.Context, jti string) (bool, error) {
+	var exists int
+	q := fmt.Sprintf("SELECT 1 FROM %s WHERE jti = ?", REVOKED_JITS_TABLE)
+	err := r.db.QueryRowContext(ctx, q, jti).Scan(&exists)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("check revoked jti: %w", err)
+	}
+
+	return true, nil
 }

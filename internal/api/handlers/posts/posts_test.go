@@ -106,7 +106,7 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 			Tags: tagsSvc, UploadsRoot: uploadsRoot,
 		},
 		router.Middlewares{
-			Auth:                 authmw.Authenticate(issuer, nil),
+			Auth:                 authmw.Authenticate(issuer, nil, nil),
 			Bouncer:              rbacmw.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
 			RequireAdmin:         rbacmw.RequireRole("Admin", nil),
 			RequireEditorOrAdmin: rbacmw.RequireAnyRole(nil, "Admin", "Editor"),

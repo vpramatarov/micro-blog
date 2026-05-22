@@ -179,3 +179,77 @@ func TestRotateRefreshTokenReturnsNotFoundWhenAlreadyRotated(t *testing.T) {
 		t.Errorf("loser hash unexpectedly inserted: err=%v", err)
 	}
 }
+
+func TestRevokeJTIInsertAndCheck(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := tokens.New(db)
+	ctx := t.Context()
+	revoked, err := r.IsJTIRevoked(ctx, "never-revoked")
+	jti := "abc-123"
+	if err != nil {
+		t.Fatalf("pre-revoke check: %v", err)
+	}
+
+	if revoked {
+		t.Errorf("unrevoked jti reported revoked")
+	}
+
+	if err := r.RevokeJTI(ctx, jti, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	revoked, err = r.IsJTIRevoked(ctx, jti)
+	if err != nil {
+		t.Fatalf("post-revoke check: %v", err)
+	}
+
+	if !revoked {
+		t.Errorf("revoked jti reported not revoked")
+	}
+
+	// Double revoke is idempotent - INSERT OR IGNORE
+	if err := r.RevokeJTI(ctx, jti, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("re-revoke should be a no-op, got: %v", err)
+	}
+}
+
+func TestRevokeJTISweepsExpiredOnInsert(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := tokens.New(db)
+	ctx := t.Context()
+	// Seed one expired and one live revocation
+	if err := r.RevokeJTI(ctx, "live", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("seed live: %v", err)
+	}
+
+	q := fmt.Sprintf("INSERT INTO %s (jti, exp) VALUES (?, ?)", tokens.REVOKED_JITS_TABLE)
+	if _, err := db.ExecContext(ctx, q, "stale", time.Now().Add(-time.Hour).UTC()); err != nil {
+		t.Fatalf("seed stale: %v", err)
+	}
+
+	// Any subsequen RevokeJTI triggers the sweep
+	if err := r.RevokeJTI(ctx, "fresh", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("trigger sweep: %v", err)
+	}
+
+	var staleCount int
+	q = fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE jti = 'stale'`, tokens.REVOKED_JITS_TABLE)
+	if err := db.QueryRowContext(ctx, q).Scan(&staleCount); err != nil {
+		t.Fatalf("count stale: %v", err)
+	}
+
+	if staleCount != 0 {
+		t.Errorf("expired row should have been swept, got count=%d", staleCount)
+	}
+
+	// The live rows must still be present
+	revoked, err := r.IsJTIRevoked(ctx, "live")
+	if err != nil || !revoked {
+		t.Fatalf("live row swept by mistake; revoked=%v, err=%v", revoked, err)
+	}
+
+	revoked, err = r.IsJTIRevoked(ctx, "fresh")
+	if err != nil {
+		t.Fatalf("fresh row missing; revoked=%v, err=%v", revoked, err)
+	}
+}

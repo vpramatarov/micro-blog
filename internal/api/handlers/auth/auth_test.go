@@ -13,12 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	categoriesService "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	shortLinksService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
+	authMW "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	categoriessrepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	postsRepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
@@ -267,6 +269,107 @@ func TestRegisterValidationMissingFields(t *testing.T) {
 	})
 }
 
+func TestLogoutRevokesAccessToken(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	usersRepo := usersRepo.New(db)
+	tokensRepo := tokensRepo.New(db)
+	cfg := &config.Config{
+		JWTSecret:     "test-secret",
+		JWTAccessTTL:  5 * time.Minute,
+		JWTRefreshTTL: time.Hour,
+		CookieSecure:  false,
+	}
+	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{})
+	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, nil)
+	email := "alice@example.com"
+	pwd := "hunter2text"
+	passwordHash, err := auth.Hash(pwd)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+
+	if _, err := usersRepo.Create(t.Context(), "alice", email, passwordHash, 4); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/auth/login", authSrvc.Login)
+	r.Post("/auth/logout", authSrvc.Logout)
+	r.Group(func(r chi.Router) {
+		r.Use(authMW.Authenticate(issuer, tokensRepo, nil))
+		r.Get("/private/ping", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+	})
+
+	server := httptest.NewServer(r)
+	t.Cleanup(server.Close)
+
+	// login -> access token
+	res := postJSON(t, server, "/auth/login", map[string]string{"email": email, "password": pwd})
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("login: got %d, want 200; body=%s", res.StatusCode, body)
+	}
+
+	var login struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&login); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+
+	res.Body.Close()
+	if login.AccessToken == "" {
+		t.Fatalf("login returned empty access token.")
+	}
+
+	cookie := findCookie(res.Cookies(), "refresh_token")
+	// use the access token -> 200
+	pingReq, _ := http.NewRequest(http.MethodGet, server.URL+"/private/ping", nil)
+	pingReq.Header.Set("Authorization", "Bearer "+login.AccessToken)
+	pingRes, err := http.DefaultClient.Do(pingReq)
+	if err != nil {
+		t.Fatalf("ping pre-logout: %v", err)
+	}
+
+	pingRes.Body.Close()
+	if pingRes.StatusCode != http.StatusOK {
+		t.Fatalf("pre-logout ping: got %d, want 200", pingRes.StatusCode)
+	}
+
+	// logout with access token in the Authorization header so the handler can extract the jti and revoke it.
+	logoutReq, _ := http.NewRequest(http.MethodPost, server.URL+"/auth/logout", nil)
+	logoutReq.Header.Set("Authorization", "Bearer "+login.AccessToken)
+	if cookie != nil {
+		logoutReq.AddCookie(cookie)
+	}
+
+	logoutRes, err := http.DefaultClient.Do(logoutReq)
+	if err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+
+	logoutRes.Body.Close()
+	if logoutRes.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout: got %d, want 204", logoutRes.StatusCode)
+	}
+
+	// Reuse the same access token must now 401.
+	pingReq2, _ := http.NewRequest(http.MethodGet, server.URL+"/private/ping", nil)
+	pingReq2.Header.Set("Authorization", "Bearer "+login.AccessToken)
+	pingRes2, err := http.DefaultClient.Do(pingReq2)
+	if err != nil {
+		t.Fatalf("ping post-logout: %v", err)
+	}
+
+	pingRes2.Body.Close()
+	if pingRes2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("post-logout ping: got %d, want 401 (access token should be revoked)", pingRes2.StatusCode)
+	}
+}
+
 func findCookie(cs []*http.Cookie, name string) *http.Cookie {
 	for _, c := range cs {
 		if c.Name == name {
@@ -289,6 +392,7 @@ func decodeValidationResp(t *testing.T, body []byte) validationResp {
 	if err := json.Unmarshal(body, &v); err != nil {
 		t.Fatalf("decode validation response: %v; body=%s", err, string(body))
 	}
+
 	return v
 }
 
@@ -298,9 +402,11 @@ func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	if v.Error != "invalid_input" {
 		t.Errorf("error code: got %q, want invalid_input", v.Error)
 	}
+
 	if v.Message != "validation failed" {
 		t.Errorf("message: got %q, want %q", v.Message, "validation failed")
 	}
+
 	if !reflect.DeepEqual(v.Fields, want) {
 		t.Errorf("fields mismatch:\ngot:  %#v\nwant: %#v", v.Fields, want)
 	}
@@ -313,5 +419,6 @@ func readBody(t *testing.T, body io.ReadCloser) []byte {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
+
 	return b
 }

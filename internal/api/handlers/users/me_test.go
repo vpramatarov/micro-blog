@@ -72,7 +72,7 @@ func setupMeEnv(t *testing.T) *meEnv {
 	r := router.New(
 		router.Services{Auth: authSrvc, Users: usersSrvc},
 		router.Middlewares{
-			Auth:         authMW.Authenticate(issuer, nil),
+			Auth:         authMW.Authenticate(issuer, nil, nil),
 			RequireAdmin: rbacMW.RequireRole("Admin", nil),
 		},
 	)

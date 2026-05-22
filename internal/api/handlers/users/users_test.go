@@ -80,7 +80,7 @@ func setupUserCrudEnv(t *testing.T) *userCrudEnv {
 	r := router.New(
 		router.Services{Auth: authSvc, Users: usersSvc},
 		router.Middlewares{
-			Auth:         authMW.Authenticate(issuer, nil),
+			Auth:         authMW.Authenticate(issuer, nil, nil),
 			RequireAdmin: rbacMW.RequireRole("Admin", nil),
 		},
 	)

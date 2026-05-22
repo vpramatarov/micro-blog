@@ -113,7 +113,7 @@ func main() {
 	go worker.Run(ctx)
 
 	// Mountable middlewares.
-	authMiddleware := authMW.Authenticate(issuer, logger)
+	authMiddleware := authMW.Authenticate(issuer, tokensRepo, logger)
 	requireAdmin := rbacMW.RequireRole("Admin", logger)
 	requireAdminOrEditor := rbacMW.RequireAnyRole(logger, "Admin", "Editor")
 

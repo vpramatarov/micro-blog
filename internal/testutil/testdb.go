@@ -21,6 +21,7 @@ var TableNames = []string{
 	"short_links",
 	"posts",
 	"refresh_tokens",
+	"revoked_jtis",
 	"role_permissions",
 	"users",
 	"roles",
@@ -39,6 +40,7 @@ var wipeTableNames = []string{
 	"posts",
 	"categories",
 	"tags",
+	"revoked_jtis",
 	"refresh_tokens",
 	"users",
 }

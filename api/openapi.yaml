@@ -694,12 +694,15 @@ paths:
       tags: [auth]
       operationId: logout
       x-roles: [anonymous, Subscriber, Author, Editor, Admin]
-      summary: Revoke the refresh token and clear the cookie.
+      summary: Revoke the refresh token and (optionally) the access_token.
       security:
         - RefreshCookie: []
+        - BearerAuth: []
       responses:
         '204':
-          description: Cookie cleared; refresh row removed if present.
+          description: |
+            Cookie cleared; refresh row removed if present;
+            access JWT revoked if a valid Bearer token was supplied.
           headers:
             Set-Cookie:
               schema: { type: string }

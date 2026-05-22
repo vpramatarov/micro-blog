@@ -87,7 +87,7 @@ func setupBouncerEnv(t *testing.T) bouncerEnv {
 	alicePostID, _ := res.LastInsertId()
 	r := chi.NewRouter()
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(authmw.Authenticate(issuer, nil))
+		r.Use(authmw.Authenticate(issuer, nil, nil))
 		r.Group(func(r chi.Router) {
 			r.Use(rbacmw.Bouncer(rrepo, prepo, srepo, nil))
 			r.Post("/posts", okHandler)

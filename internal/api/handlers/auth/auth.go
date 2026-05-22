@@ -226,7 +226,16 @@ func (s *Service) Refresh(w http.ResponseWriter, r *http.Request) {
 func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(refreshCookieName)
 	if err == nil && cookie.Value != "" {
-		s.Tokens.Delete(r.Context(), auth.HashRefreshToken(cookie.Value))
+		_ = s.Tokens.Delete(r.Context(), auth.HashRefreshToken(cookie.Value))
+	}
+
+	if token := httpx.BearerToken(r); token != "" {
+		if claims, err := s.Issuer.Parse(token); err == nil && claims.ID != "" && claims.ExpiresAt != nil {
+			if err := s.Tokens.RevokeJTI(r.Context(), claims.ID, claims.ExpiresAt.Time); err != nil {
+				s.Log.Error("revoke jti on logout", "err", err, "jti", claims.ID)
+				// Not needed to fail the response - the refresh cookie is already cleared. just log it.
+			}
+		}
 	}
 
 	s.clearRefreshCookie(w)

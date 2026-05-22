@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -50,6 +51,27 @@ func WriteForbidden(w http.ResponseWriter) {
 	_ = WriteJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 }
 
+func WriteUnauthorized(w http.ResponseWriter, code string) {
+	// unauthorizedMessages maps the structured `error` code to the human-readable
+	// `message` that the rest of the API emits via httpx.WriteError. Kept inline
+	// so the middleware doesn't import the handlers tier.
+	var unauthorizedMessages = map[string]string{
+		"missing_token": "authentication required",
+		"invalid_token": "token is invalid or expired",
+	}
+	WriteError(w, http.StatusUnauthorized, code, unauthorizedMessages[code])
+}
+
 func ParseIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+}
+
+func BearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(h, prefix) {
+		return ""
+	}
+
+	return strings.TrimSpace(h[len(prefix):])
 }

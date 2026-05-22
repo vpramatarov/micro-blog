@@ -46,7 +46,13 @@ func NewIssuer(secret string, accessTTL time.Duration, opts IssuerOptions) *Issu
 
 func (i *Issuer) Access(u UserClaim) (string, error) {
 	now := time.Now()
+	jti, err := NewJTI()
+	if err != nil {
+		return "", fmt.Errorf("generate jti: %v", err)
+	}
+
 	reg := jwt.RegisteredClaims{
+		ID:        jti,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(i.accessTTL)),
 		Subject:   fmt.Sprintf("%d", u.UserID),
@@ -60,14 +66,27 @@ func (i *Issuer) Access(u UserClaim) (string, error) {
 		reg.Audience = jwt.ClaimStrings{i.opts.Audience}
 	}
 
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
 		UserID:           u.UserID,
 		Email:            u.Email,
 		Role:             u.Role,
 		RoleID:           u.RoleID,
 		RegisteredClaims: reg,
 	})
-	return tok.SignedString(i.secret)
+	return token.SignedString(i.secret)
+}
+
+// returns fresh unique JWT identifier formatted as an RFC4122 UUID v4 string.
+func NewJTI() (string, error) {
+	var buffer [16]byte
+	if _, err := rand.Read(buffer[:]); err != nil {
+		return "", err
+	}
+
+	buffer[6] = (buffer[6] & 0x0f) | 0x40 // version 4
+	buffer[8] = (buffer[8] & 0x3f) | 0x80 // RFC 4122 variant
+	h := hex.EncodeToString(buffer[:])
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32], nil
 }
 
 func (i *Issuer) Parse(token string) (*Claims, error) {
