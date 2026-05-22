@@ -72,3 +72,40 @@ func (r *Repo) DeleteUserTokens(ctx context.Context, userID int64) error {
 
 	return nil
 }
+
+// RotateRefreshToken atomically swaps an existing refresh token row for a new one in single transaction.
+func (r *Repo) RotateRefreshToken(ctx context.Context, oldHash string, userID int64, newHash string, expiresAt time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback() // Rollback is a no-op once Commit ran.
+	}()
+
+	q := fmt.Sprintf("DELETE FROM %s WHERE token_hash = ?", DB_TABLE)
+	res, err := tx.ExecContext(ctx, q, oldHash)
+	if err != nil {
+		return fmt.Errorf("delete old refresh token: %w", err)
+	}
+
+	deleted, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rotate refresh token: rows affected: %w", err)
+	}
+
+	if deleted == 0 {
+		return ErrRefreshTokenNotFound
+	}
+
+	q = fmt.Sprintf("INSERT INTO %s (user_id, token_hash, expires_at) VALUES (?, ?, ?)", DB_TABLE)
+	if _, err := tx.ExecContext(ctx, q, userID, newHash, expiresAt.UTC()); err != nil {
+		return fmt.Errorf("insert new refresh token: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	return nil
+}

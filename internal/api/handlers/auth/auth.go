@@ -176,13 +176,6 @@ func (s *Service) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rotate: delete the old row before issuing a new one. Any replay of the old token after this point fails the FindRefreshToken lookup above.
-	if err := s.Tokens.Delete(r.Context(), oldHash); err != nil {
-		s.Log.Error("delete old refresh token", "err", err, "user_id", userID)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not rotate refresh token")
-		return
-	}
-
 	u, err := s.Users.GetByID(r.Context(), userID)
 	if err != nil {
 		s.clearRefreshCookie(w)
@@ -199,11 +192,28 @@ func (s *Service) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.issueRefreshCookie(w, r, u.ID); err != nil {
-		s.Log.Error("issue refresh cookie", "err", err, "user_id", u.ID)
+	plain, newHash, err := auth.NewRefreshToken()
+	if err != nil {
+		s.Log.Error("generate refresh token", "err", err, "user_id", u.ID)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not issue refresh token")
 		return
 	}
+
+	newExpiresAt := time.Now().Add(s.Cfg.JWTRefreshTTL)
+	if err := s.Tokens.RotateRefreshToken(r.Context(), oldHash, u.ID, newHash, newExpiresAt); err != nil {
+		if errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+			s.clearRefreshCookie(w)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_refresh_token", "refresh token is invalid or expired")
+			return
+		}
+
+		s.Log.Error("rotate refresh token", "err", err, "user_id", u.ID)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not rotate refresh token")
+		return
+	}
+
+	// DB rotation committed.
+	s.setRefreshCookie(w, plain)
 
 	httpx.WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: access,
@@ -234,16 +244,7 @@ func (s *Service) issueRefreshCookie(w http.ResponseWriter, r *http.Request, use
 		return err
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     refreshCookieName,
-		Value:    plain,
-		Path:     refreshCookiePath,
-		HttpOnly: true,
-		Secure:   s.Cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(s.Cfg.JWTRefreshTTL.Seconds()),
-	})
-
+	s.setRefreshCookie(w, plain)
 	return nil
 }
 
@@ -256,5 +257,17 @@ func (s *Service) clearRefreshCookie(w http.ResponseWriter) {
 		Secure:   s.Cfg.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
+	})
+}
+
+func (s *Service) setRefreshCookie(w http.ResponseWriter, plain string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    plain,
+		Path:     refreshCookiePath,
+		HttpOnly: true,
+		Secure:   s.Cfg.CookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(s.Cfg.JWTRefreshTTL.Seconds()),
 	})
 }

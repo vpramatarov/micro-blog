@@ -112,3 +112,70 @@ func TestRefreshTokenCascadeOnUserDelete(t *testing.T) {
 		t.Errorf("expected cascade delete to remove refresh token, got %v", err)
 	}
 }
+
+func TestRotateRefreshTokenAtomicSwap(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	userRepo := users.New(db)
+	r := tokens.New(db)
+	ctx := t.Context()
+	userID, err := userRepo.Create(ctx, "rot", "rot@example.com", "h", 4)
+	if err != nil {
+		t.Fatalf("create user : %v", err)
+	}
+
+	if err := r.Insert(ctx, userID, "old-hash", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("seed old: %v", err)
+	}
+
+	newExpiresAt := time.Now().Add(2 * time.Hour)
+	if err := r.RotateRefreshToken(ctx, "old-hash", userID, "new-hash", newExpiresAt); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	if _, _, err := r.FindOneByHash(ctx, "old-hash"); !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Errorf("old hash: go %v, want ErrRefreshTokenNotFound", err)
+	}
+
+	gotUserID, gotExpire, err := r.FindOneByHash(ctx, "new-hash")
+	if err != nil {
+		t.Fatalf("find new: %v", err)
+	}
+
+	if gotUserID != userID {
+		t.Errorf("new hash user_id: got %d, want %d", gotUserID, userID)
+	}
+
+	if gotExpire.Unix() != newExpiresAt.UTC().Unix() {
+		t.Errorf("new hash expires_at: got %v, want %v", gotExpire, newExpiresAt)
+	}
+}
+
+func TestRotateRefreshTokenReturnsNotFoundWhenAlreadyRotated(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	userRepo := users.New(db)
+	r := tokens.New(db)
+	ctx := t.Context()
+	userID, err := userRepo.Create(ctx, "race", "race@example.com", "h", 4)
+	if err != nil {
+		t.Fatalf("create user : %v", err)
+	}
+
+	if err := r.Insert(ctx, userID, "stale-hash", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("seed old: %v", err)
+	}
+
+	// First rotation wins.
+	if err := r.RotateRefreshToken(ctx, "stale-hash", userID, "winner", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("first rotate: %v", err)
+	}
+
+	// Second rotation against the same now-removed old hash must reject and MUST NOT insert "loser"
+	err = r.RotateRefreshToken(ctx, "stale-hash", userID, "loser", time.Now().Add(time.Hour))
+	if !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Fatalf("second rotate: got %v, want ErrRefreshTokenNotFound", err)
+	}
+
+	if _, _, err := r.FindOneByHash(ctx, "loser"); !errors.Is(err, tokens.ErrRefreshTokenNotFound) {
+		t.Errorf("loser hash unexpectedly inserted: err=%v", err)
+	}
+}
