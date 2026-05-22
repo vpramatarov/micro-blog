@@ -137,7 +137,7 @@ func main() {
 				observabilityMW.RequestLogger(logger),
 				chiMW.Recoverer,
 				securityMW.LimitBody(securityMW.DefaultBodyLimit),
-				securityMW.SecurityHeaders(),
+				securityMW.SecurityHeaders(securityMW.Options{EnableHSTS: cfg.CookieSecure}),
 				chiMW.Timeout(120 * time.Second),
 			},
 		},

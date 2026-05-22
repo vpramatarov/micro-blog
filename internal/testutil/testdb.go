@@ -29,10 +29,9 @@ var TableNames = []string{
 	"tags",
 }
 
-// wipeTableNames is the subset of TableNames that wipeTables actually clears
-// between tests. roles, permissions and role_permissions are seeded by
-// migration 00004 and treated as reference data — leaving them in place keeps
-// the test DB consistent with production after the per-binary DownTo 0 -> Up cycle.
+// wipeTableNames is the subset of TableNames that wipeTables actually clears between tests.
+// roles, permissions and role_permissions are seeded by migration 00004 and treated as reference data —
+// leaving them in place keeps the test DB consistent with production after the migrations DownTo 0 -> Up cycle.
 var wipeTableNames = []string{
 	"jobs",
 	"post_tags",
@@ -45,8 +44,7 @@ var wipeTableNames = []string{
 }
 
 // findRepoRoot walks up from the current working directory looking for go.mod.
-// Reliable regardless of where the test binary was compiled, and works from any
-// package inside the module.
+// Reliable regardless of where the test binary was compiled, and works from any package inside the module.
 func findRepoRoot() (string, error) {
 	start, err := os.Getwd()
 	if err != nil {
