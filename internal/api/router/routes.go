@@ -48,6 +48,12 @@ type Middlewares struct {
 	// they have no ownership concept, so the Bouncer matrix is not the right gate.
 	RequireEditorOrAdmin func(http.Handler) http.Handler
 
+	// Token-bucket POST /auth/register & /auth/login per client IP. May be nil in tests.
+	AuthLoginRegister func(http.Handler) http.Handler
+
+	// Token-bucket POST /auth/refresh. May be nil in tests.
+	AuthRefresh func(http.Handler) http.Handler
+
 	// Global runs on every request. Mounted in the order given via chi.
 	// Order matters (e.g. RequestID before RequestLogger so the log line can correlate by id).
 	Global []func(http.Handler) http.Handler
@@ -125,9 +131,23 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	r.Get("/docs", srvc.Docs.ServeDocs)
 
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", srvc.Auth.Register)
-		r.Post("/login", srvc.Auth.Login)
-		r.Post("/refresh", srvc.Auth.Refresh)
+		r.Group(func(r chi.Router) {
+			if mw.AuthLoginRegister != nil {
+				r.Use(mw.AuthLoginRegister)
+			}
+
+			r.Post("/register", srvc.Auth.Register)
+			r.Post("/login", srvc.Auth.Login)
+		})
+
+		r.Group(func(r chi.Router) {
+			if mw.AuthRefresh != nil {
+				r.Use(mw.AuthRefresh)
+			}
+
+			r.Post("/refresh", srvc.Auth.Refresh)
+		})
+
 		r.Post("/logout", srvc.Auth.Logout)
 	})
 

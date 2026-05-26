@@ -24,6 +24,7 @@ import (
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authMW "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	observabilityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/observability"
+	"github.com/vpramatarov/micro-blog/internal/api/middleware/ratelimit"
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	securityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/security"
 	categoriesRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
@@ -117,6 +118,17 @@ func main() {
 	requireAdmin := rbacMW.RequireRole("Admin", logger)
 	requireAdminOrEditor := rbacMW.RequireAnyRole(logger, "Admin", "Editor")
 
+	// Per-IP rate limits on /auth/*
+	authLoginRegisterMW := ratelimit.PerIP(ratelimit.RateLimitConfig{
+		RPS:   ratelimit.Per(5, time.Minute),
+		Burst: 5,
+	}, logger)
+
+	authRefreshMW := ratelimit.PerIP(ratelimit.RateLimitConfig{
+		RPS:   ratelimit.Per(30, time.Minute),
+		Burst: 10,
+	}, logger)
+
 	r := router.New(
 		router.Services{
 			Auth:       authSrvc,
@@ -131,6 +143,8 @@ func main() {
 			Auth:                 authMiddleware,
 			RequireAdmin:         requireAdmin,
 			RequireEditorOrAdmin: requireAdminOrEditor,
+			AuthLoginRegister:    authLoginRegisterMW,
+			AuthRefresh:          authRefreshMW,
 			Global: []func(http.Handler) http.Handler{
 				chiMW.RequestID,
 				chiMW.RealIP,

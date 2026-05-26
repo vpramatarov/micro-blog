@@ -12,11 +12,11 @@ import (
 	"github.com/disintegration/imaging"
 )
 
-const JPEGQuality = 85
+const JPEGQuality int = 85
 
 // MinDimension is the minimum width AND height we accept on upload.
 // 800 is the largest variant's edge, so anything smaller would have to be upscaled for at least one variant.
-const MinDimension = 800
+const MinDimension int = 800
 
 var (
 	// ErrUnsupportedFormat fires when imaging.Decode reports a format other than JPEG or PNG. The handler maps this to 415.

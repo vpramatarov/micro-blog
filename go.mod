@@ -14,6 +14,7 @@ require (
 require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
 
 require (
