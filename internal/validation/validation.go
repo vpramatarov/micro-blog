@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 )
 
 const (
@@ -178,4 +180,16 @@ func Name(s string) string {
 	}
 
 	return ""
+}
+
+// Validates post status.
+func PostStatus(s string) string {
+	switch strings.TrimSpace(s) {
+	case "":
+		return "is required"
+	case postRepository.PostStatusDraft, postRepository.PostStatusPublished, postRepository.PostStatusArchived:
+		return ""
+	default:
+		return fmt.Sprintf("must be one of: %s, %s, %s", postRepository.PostStatusDraft, postRepository.PostStatusPublished, postRepository.PostStatusArchived)
+	}
 }

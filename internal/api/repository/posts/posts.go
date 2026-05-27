@@ -13,6 +13,27 @@ import (
 
 const DB_TABLE string = "posts"
 
+const POSTS_SELECT_COLUMS string = `
+	p.id,
+	p.author_id,
+	u.username,
+	p.category_id,
+	c.name,
+	p.title,
+	p.slug,
+	p.markdown_content,
+	p.html_content,
+	p.created_at,
+	COALESCE(p.featured_image_path, ''),
+	p.status
+`
+
+const (
+	PostStatusDraft     string = "draft"
+	PostStatusPublished string = "published"
+	PostStatusArchived  string = "archived"
+)
+
 // ErrPostNotFound is returned when a SELECT/UPDATE/DELETE targets an id that does not exist.
 var ErrPostNotFound = errors.New("post not found")
 
@@ -35,6 +56,7 @@ type Post struct {
 	HTMLContent       string    `json:"html_content"`
 	CreatedAt         time.Time `json:"created_at"`
 	FeaturedImagePath string    `json:"featured_image_path,omitempty"`
+	Status            string    `json:"status"`
 }
 
 // PostInsert carries the fields CreatePost writes.
@@ -48,6 +70,7 @@ type PostInsert struct {
 	HTML              string
 	Slug              string
 	FeaturedImagePath string
+	Status            string
 }
 
 // PostUpdate carries the fields UpdatePost rewrites. category_id and slug always come from the handler — there is no partial-update mode.
@@ -59,6 +82,7 @@ type PostUpdate struct {
 	HTML              string
 	Slug              string
 	FeaturedImagePath string
+	Status            string
 }
 
 type Repo struct {
@@ -71,13 +95,11 @@ func New(db *sql.DB) *Repo {
 
 func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 	q := fmt.Sprintf(`
-		SELECT 
-		p.id, p.author_id, u.username, p.category_id, c.name, p.title, p.slug, p.markdown_content, p.html_content, p.created_at, COALESCE(p.featured_image_path, '')
-		FROM %s AS p
+		SELECT %s FROM %s AS p
 		INNER JOIN users AS u ON u.id = p.author_id
 		INNER JOIN categories AS c ON c.id = p.category_id
 		WHERE p.id = ?`,
-		DB_TABLE)
+		POSTS_SELECT_COLUMS, DB_TABLE)
 
 	var post Post
 	err := r.db.QueryRowContext(ctx, q, id).Scan(
@@ -92,6 +114,7 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 		&post.HTMLContent,
 		&post.CreatedAt,
 		&post.FeaturedImagePath,
+		&post.Status,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -108,13 +131,11 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 // GetBySlug is the read path behind GET /posts/{slug}. Public — the slug is taken from the URL and looked up directly.
 func (r *Repo) GetBySlug(ctx context.Context, slug string) (*Post, error) {
 	q := fmt.Sprintf(`
-		SELECT 
-		p.id, p.author_id, u.username, p.category_id, c.name, p.title, p.slug, p.markdown_content, p.html_content, p.created_at, COALESCE(p.featured_image_path, '')
-		FROM %s AS p
+		SELECT %s FROM %s AS p
 		INNER JOIN users AS u ON u.id = p.author_id
 		INNER JOIN categories AS c ON c.id = p.category_id
-		WHERE p.slug = ?`,
-		DB_TABLE)
+		WHERE p.slug = ? AND p.status = '%s'`,
+		POSTS_SELECT_COLUMS, DB_TABLE, PostStatusPublished)
 	var p Post
 	err := r.db.QueryRowContext(ctx, q, slug).Scan(
 		&p.ID,
@@ -128,6 +149,7 @@ func (r *Repo) GetBySlug(ctx context.Context, slug string) (*Post, error) {
 		&p.HTMLContent,
 		&p.CreatedAt,
 		&p.FeaturedImagePath,
+		&p.Status,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPostNotFound
@@ -154,11 +176,15 @@ func (r *Repo) GetOwnerID(ctx context.Context, postID int64) (int64, error) {
 }
 
 func (r *Repo) Create(ctx context.Context, p PostInsert) (int64, error) {
+	if p.Status == "" {
+		p.Status = PostStatusDraft
+	}
+
 	q := fmt.Sprintf(`
-		INSERT INTO %s (author_id, category_id, title, slug, markdown_content, html_content, featured_image_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?);`,
+		INSERT INTO %s (author_id, category_id, title, slug, markdown_content, html_content, featured_image_path, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
 		DB_TABLE)
-	res, err := r.db.ExecContext(ctx, q, p.AuthorID, p.CategoryID, p.Title, p.Slug, p.Markdown, p.HTML, repository.NullableString(p.FeaturedImagePath))
+	res, err := r.db.ExecContext(ctx, q, p.AuthorID, p.CategoryID, p.Title, p.Slug, p.Markdown, p.HTML, repository.NullableString(p.FeaturedImagePath), p.Status)
 	if err != nil {
 		if repository.IsSlugUniqueViolation(err, "posts.slug") {
 			return 0, ErrPostDuplicateSlug
@@ -184,10 +210,12 @@ func (r *Repo) Update(ctx context.Context, id int64, post PostUpdate) error {
 	}
 
 	updateQ := fmt.Sprintf(`
-		UPDATE %s SET category_id = ?, title = ?, slug = ?, markdown_content = ?, html_content = ?, featured_image_path = ?
+		UPDATE %s SET category_id = ?, title = ?, slug = ?, markdown_content = ?, html_content = ?, featured_image_path = ?, status = ?
 		WHERE id = ?`,
 		DB_TABLE)
-	_, err := r.db.ExecContext(ctx, updateQ, post.CategoryID, post.Title, post.Slug, post.Markdown, post.HTML, repository.NullableString(post.FeaturedImagePath), id)
+	_, err := r.db.ExecContext(
+		ctx, updateQ, post.CategoryID, post.Title, post.Slug, post.Markdown, post.HTML, repository.NullableString(post.FeaturedImagePath), post.Status, id,
+	)
 	if err != nil {
 		if repository.IsSlugUniqueViolation(err, "posts.slug") {
 			return ErrPostDuplicateSlug
@@ -218,55 +246,73 @@ func (r *Repo) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (r *Repo) Count(ctx context.Context) (int, error) {
+func (r *Repo) Count(ctx context.Context, status string) (int, error) {
+	args := []any{}
 	var n int
 	q := fmt.Sprintf("SELECT COUNT(*) FROM %s", DB_TABLE)
-	err := r.db.QueryRowContext(ctx, q).Scan(&n)
-	if err != nil {
+	if status != "" {
+		q += ` WHERE status = ? `
+		args = append(args, status)
+	}
+
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count posts: %w", err)
 	}
 
 	return n, nil
 }
 
-func (r *Repo) CountByAuthor(ctx context.Context, authorID int64) (int, error) {
+func (r *Repo) CountByAuthor(ctx context.Context, authorID int64, status string) (int, error) {
+	args := []any{authorID}
 	var n int
 	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE author_id = ?", DB_TABLE)
-	err := r.db.QueryRowContext(ctx, q, authorID).Scan(&n)
-	if err != nil {
+	if status != "" {
+		q += ` WHERE status = ? `
+		args = append(args, status)
+	}
+
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count posts by author: %w", err)
 	}
 
 	return n, nil
 }
 
-func (r *Repo) List(ctx context.Context, limit, offset int) ([]Post, error) {
+func (r *Repo) List(ctx context.Context, status string, limit, offset int) ([]Post, error) {
+	args := []any{}
 	q := fmt.Sprintf(`
-		SELECT
-		p.id, p.author_id, u.username, p.category_id, c.name, p.title, p.slug, p.markdown_content, p.html_content, p.created_at, COALESCE(p.featured_image_path, '')
-		FROM %s AS p
+		SELECT %s FROM %s AS p
 		INNER JOIN users AS u ON u.id = p.author_id
-		INNER JOIN categories AS c ON c.id = p.category_id
-		ORDER BY p.created_at DESC, p.id DESC 
-		LIMIT ? OFFSET ?`,
-		DB_TABLE)
+		INNER JOIN categories AS c ON c.id = p.category_id`,
+		POSTS_SELECT_COLUMS, DB_TABLE)
 
-	return r.query(ctx, q, limit, offset)
+	if status != "" {
+		q += ` WHERE p.status = ? `
+		args = append(args, status)
+	}
+
+	q += ` ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	return r.query(ctx, q, args...)
 }
 
-func (r *Repo) ListByAuthor(ctx context.Context, authorID int64, limit, offset int) ([]Post, error) {
+func (r *Repo) ListByAuthor(ctx context.Context, authorID int64, status string, limit, offset int) ([]Post, error) {
+	args := []any{authorID}
 	q := fmt.Sprintf(`
-		SELECT
-		p.id, p.author_id, u.username, p.category_id, c.name, p.title, p.slug, p.markdown_content, p.html_content, p.created_at, COALESCE(p.featured_image_path, '')
-		FROM %s AS p
+		SELECT %s FROM %s AS p
 		INNER JOIN users AS u ON u.id = p.author_id
 		INNER JOIN categories AS c ON c.id = p.category_id
-		WHERE p.author_id = ?
-		ORDER BY p.created_at DESC, p.id DESC
-		LIMIT ? OFFSET ?`,
-		DB_TABLE)
+		WHERE p.author_id = ?`,
+		POSTS_SELECT_COLUMS, DB_TABLE)
 
-	return r.query(ctx, q, authorID, limit, offset)
+	if status != "" {
+		q += ` AND p.status = ? `
+		args = append(args, status)
+	}
+
+	q += ` ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	return r.query(ctx, q, args...)
 }
 
 func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post, error) {
@@ -291,6 +337,7 @@ func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post,
 			&post.HTMLContent,
 			&post.CreatedAt,
 			&post.FeaturedImagePath,
+			&post.Status,
 		); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}

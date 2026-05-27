@@ -49,11 +49,13 @@ type postWriteRequest struct {
 	CategoryID          int64   `json:"category_id"`
 	TagIDs              []int64 `json:"tag_ids"`
 	RemoveFeaturedImage bool    `json:"remove_featured_image"`
+	Status              string  `json:"status"`
 }
 
 func (r *postWriteRequest) normalize() {
 	r.Title = strings.TrimSpace(r.Title)
 	r.Markdown = strings.TrimSpace(r.Markdown)
+	r.Status = strings.TrimSpace(r.Status)
 }
 
 func (r *postWriteRequest) Validate() validation.Errors {
@@ -62,6 +64,10 @@ func (r *postWriteRequest) Validate() validation.Errors {
 	e.Add("markdown_content", validation.MarkdownContent(r.Markdown))
 	if r.CategoryID <= 0 {
 		e.Add("category_id", "is required")
+	}
+
+	if r.Status != "" {
+		e.Add("status", validation.PostStatus(r.Status))
 	}
 
 	return e
@@ -110,13 +116,13 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total, err := s.Posts.Count(r.Context())
+	total, err := s.Posts.Count(r.Context(), postRepository.PostStatusPublished)
 	if err != nil {
 		s.Log.Error("count posts", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
 	}
 
-	posts, err := s.Posts.List(r.Context(), limit, offset)
+	posts, err := s.Posts.List(r.Context(), postRepository.PostStatusPublished, limit, offset)
 	if err != nil {
 		s.Log.Error("list posts", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
@@ -160,6 +166,12 @@ func (s *Service) GetByCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Public endpoint: non-published posts must be treated as missing row, otherwise draft URL's can leak existence.
+	if post.Status != postRepository.PostStatusPublished {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
+		return
+	}
+
 	view, err := s.hydrateOne(r, post)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load post")
@@ -189,6 +201,12 @@ func (s *Service) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Public endpoint: non-published posts must be treated as missing row, otherwise draft URL's can leak existence.
+	if post.Status != postRepository.PostStatusPublished {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
+		return
+	}
+
 	view, err := s.hydrateOne(r, post)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load post")
@@ -199,7 +217,7 @@ func (s *Service) GetBySlug(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAdmin — GET /admin/posts. Authenticated; Authors only see their own posts, every other role sees all posts.
-// Paginated via ?page / ?per_page.
+// Paginated via ?page / ?per_page. Accepts an optional ?status=draft|published|archived filter; empty means all statuses.
 // The numeric `id` is exposed because admins/editors/authors need it to call PUT/DELETE /admin/posts/{id}.
 func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
@@ -213,23 +231,28 @@ func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total, err := s.countPostsForRole(r, claims)
-	if err != nil {
-		s.Log.Error("count posts", "err", err, "user_id", claims.UserID, "role", claims.Role)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+	status, ok := parseStatusQuery(w, r)
+	if !ok {
 		return
 	}
 
-	posts, err := s.listPostsForRole(r, claims, limit, offset)
+	total, err := s.countPostsForRole(r, claims, status)
+	if err != nil {
+		s.Log.Error("count posts", "err", err, "user_id", claims.UserID, "role", claims.Role)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts (count)")
+		return
+	}
+
+	posts, err := s.listPostsForRole(r, claims, status, limit, offset)
 	if err != nil {
 		s.Log.Error("list posts", "err", err, "user_id", claims.UserID, "role", claims.Role)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts (list)")
 		return
 	}
 
 	items, err := s.hydrateMany(r, posts)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts (hydrate)")
 		return
 	}
 
@@ -280,6 +303,10 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.normalize()
+	if req.Status == "" {
+		req.Status = postRepository.PostStatusDraft // defaults to "draft" when the client omits the status.
+	}
+
 	errs := req.Validate()
 	if !errs.IsEmpty() {
 		httpx.WriteValidationError(w, errs)
@@ -322,7 +349,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := s.createWithSlug(r, postRepository.PostInsert{
 		AuthorID: claims.UserID, CategoryID: req.CategoryID,
 		Title: req.Title, Markdown: req.Markdown, HTML: html,
-		Slug: base, FeaturedImagePath: imagePath,
+		Slug: base, FeaturedImagePath: imagePath, Status: req.Status,
 	})
 	if err != nil {
 		// Roll the image back so we don't leak orphans on a failed INSERT.
@@ -393,6 +420,12 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	oldPath := existing.FeaturedImagePath
 
+	// Status: empty in request means keep existing.
+	newStatus := req.Status
+	if newStatus == "" {
+		newStatus = existing.Status
+	}
+
 	html, err := markdown.Render(req.Markdown)
 	if err != nil {
 		s.Log.Error("render markdown", "err", err)
@@ -431,7 +464,9 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.updateWithSlug(r, id, postRepository.PostUpdate{
-		CategoryID: req.CategoryID, Title: req.Title, Markdown: req.Markdown, HTML: html, Slug: base, FeaturedImagePath: newPath,
+		CategoryID: req.CategoryID, Title: req.Title,
+		Markdown: req.Markdown, HTML: html, Slug: base,
+		FeaturedImagePath: newPath, Status: newStatus,
 	}); err != nil {
 		// Roll back any freshly-saved image on UPDATE failure so we don't leak orphans.
 		// We deliberately do NOT touch oldPath here — the existing post still references it.
@@ -514,20 +549,20 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Service) listPostsForRole(r *http.Request, claims *auth.Claims, limit, offset int) ([]postRepository.Post, error) {
+func (s *Service) listPostsForRole(r *http.Request, claims *auth.Claims, status string, limit, offset int) ([]postRepository.Post, error) {
 	if claims.Role == roleAuthor {
-		return s.Posts.ListByAuthor(r.Context(), claims.UserID, limit, offset)
+		return s.Posts.ListByAuthor(r.Context(), claims.UserID, status, limit, offset)
 	}
 
-	return s.Posts.List(r.Context(), limit, offset)
+	return s.Posts.List(r.Context(), status, limit, offset)
 }
 
-func (s *Service) countPostsForRole(r *http.Request, claims *auth.Claims) (int, error) {
+func (s *Service) countPostsForRole(r *http.Request, claims *auth.Claims, status string) (int, error) {
 	if claims.Role == roleAuthor {
-		return s.Posts.CountByAuthor(r.Context(), claims.UserID)
+		return s.Posts.CountByAuthor(r.Context(), claims.UserID, status)
 	}
 
-	return s.Posts.Count(r.Context())
+	return s.Posts.Count(r.Context(), status)
 }
 
 // loadView re-fetches the post and hydrates it for a single-row response.
@@ -598,7 +633,7 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 // createWithSlug resolves a free slug variant and inserts the post.
 // Retries once on the rare race where two concurrent writers both pick the same suffix between FindAvailableSlug and INSERT.
 func (s *Service) createWithSlug(r *http.Request, ins postRepository.PostInsert) (int64, error) {
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		candidate, err := s.Posts.FindAvailableSlug(r.Context(), ins.Slug, 0)
 		if err != nil {
 			return 0, err
@@ -621,7 +656,7 @@ func (s *Service) createWithSlug(r *http.Request, ins postRepository.PostInsert)
 }
 
 func (s *Service) updateWithSlug(r *http.Request, id int64, postUpdate postRepository.PostUpdate) error {
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		candidate, err := s.Posts.FindAvailableSlug(r.Context(), postUpdate.Slug, id)
 		if err != nil {
 			return err
@@ -777,4 +812,18 @@ func (s *Service) saveImageAndEnqueue(w http.ResponseWriter, r *http.Request, he
 	}
 
 	return relPath, true
+}
+
+func parseStatusQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status == "" {
+		return "", true
+	}
+
+	if msg := validation.PostStatus(status); msg != "" {
+		httpx.WriteValidationError(w, map[string]string{"status": msg})
+		return "", false
+	}
+
+	return status, true
 }

@@ -66,9 +66,11 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Category, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCategoryNotFound
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("get category: %w", err)
 	}
+
 	return &c, nil
 }
 
@@ -176,15 +178,19 @@ func (r *Repo) Delete(ctx context.Context, id int64) error {
 		if repository.IsForeignKeyViolation(err) {
 			return ErrCategoryInUse
 		}
+
 		return fmt.Errorf("delete category: %w", err)
 	}
+
 	rows, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("rows affected: %w", err)
 	}
+
 	if rows == 0 {
 		return ErrCategoryNotFound
 	}
+
 	return nil
 }
 

@@ -27,6 +27,7 @@ import (
 	rbacmw "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	categoriesrepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	jobsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
+	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	postsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacrepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
 	shortlinksrepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
@@ -352,10 +353,11 @@ func TestGetPostByHashidPublic(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	res, err := raw.ExecContext(ctx,
-		`INSERT INTO posts (author_id, title, markdown_content, html_content, slug) VALUES (?, 'hello', '# hi', '<h1>hi</h1>', 'hello-public')`,
-		authorID,
+	q := fmt.Sprintf(`
+		INSERT INTO posts (author_id, title, markdown_content, html_content, slug, status) VALUES (?, 'hello', '# hi', '<h1>hi</h1>', 'hello-public', '%s')`,
+		postRepository.PostStatusPublished,
 	)
+	res, err := raw.ExecContext(ctx, q, authorID)
 	if err != nil {
 		t.Fatalf("insert post: %v", err)
 	}
@@ -441,7 +443,9 @@ func TestGetPostBySlugPublic(t *testing.T) {
 	}
 
 	postID, err := app.postsRepo.Create(ctx, postsrepo.PostInsert{
-		AuthorID: authorID, CategoryID: 1, Title: "Hello slug", Slug: "hello-slug", Markdown: "# hi", HTML: "<h1>hi</h1>",
+		AuthorID: authorID, CategoryID: 1, Title: "Hello slug",
+		Slug: "hello-slug", Markdown: "# hi", HTML: "<h1>hi</h1>",
+		Status: postRepository.PostStatusPublished,
 	})
 	if err != nil {
 		t.Fatalf("create post: %v", err)
@@ -826,14 +830,228 @@ func TestCreatePostSlugAutoSuffix(t *testing.T) {
 	}
 }
 
-type validationResp struct {
-	Error   string            `json:"error"`
-	Message string            `json:"message"`
-	Fields  map[string]string `json:"fields"`
+func TestPostStatusVisibility(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	ctx := t.Context()
+
+	mustPost := func(slug, status string) {
+		t.Helper()
+		if _, err := env.app.postsRepo.Create(ctx, postsrepo.PostInsert{
+			AuthorID: env.userID["Admin"], CategoryID: 1, Title: "vis-" + slug,
+			Slug: slug, Markdown: "# body\n\nlong enough", HTML: "<p>x</p>",
+			Status: status,
+		}); err != nil {
+			t.Fatalf("seed %s/%s: %v", status, slug, err)
+		}
+	}
+	mustPost("live-1", postRepository.PostStatusPublished)
+	mustPost("wip-1", postRepository.PostStatusDraft)
+	mustPost("archive-1", postRepository.PostStatusArchived)
+
+	// public list - only "live-1" must be returned.
+	rec := doJSON(t, env.app.r, http.MethodGet, "/posts", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public list: got %d", rec.Code)
+	}
+
+	var pubList struct {
+		Items []postsrepo.Post `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pubList); err != nil {
+		t.Fatalf("decode public list: %v", err)
+	}
+
+	if pubList.Total != 1 || len(pubList.Items) != 1 {
+		t.Errorf("public list got %d/%d items, want 1/1", len(pubList.Items), pubList.Total)
+	}
+
+	if len(pubList.Items) == 1 && pubList.Items[0].Slug != "live-1" {
+		t.Errorf("public list returned non-published slug: %q", pubList.Items[0].Slug)
+	}
+
+	// public single read - draft slug 404s
+	rec = doJSON(t, env.app.r, http.MethodGet, "/posts/wip-1", "", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("public draft slug: got %d, want 404", rec.Code)
+	}
+
+	// archived behaves the same.
+	rec = doJSON(t, env.app.r, http.MethodGet, "/posts/archive-1", "", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("public archived slug: got %d, want 404", rec.Code)
+	}
+
+	// published is reachable
+	rec = doJSON(t, env.app.r, http.MethodGet, "/posts/live-1", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public published slug: got %d, want 200", rec.Code)
+	}
+
+	// Admin list with no filter - all 3.
+	rec = doJSON(t, env.app.r, http.MethodGet, "/admin/posts", env.tokens["Admin"], "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin list: got %d, want 200", rec.Code)
+	}
+
+	var adminList struct {
+		Items []postsrepo.Post `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &adminList); err != nil {
+		t.Fatalf("decode admin list: %v", err)
+	}
+
+	if adminList.Total != 3 {
+		t.Errorf("admin list (no filter): got total=%d, want 3", adminList.Total)
+	}
+
+	rec = doJSON(t, env.app.r, http.MethodGet, fmt.Sprintf("/admin/posts?status=%s", postRepository.PostStatusDraft), env.tokens["Admin"], "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin filter (filter by status %s): got %d, want 200", postRepository.PostStatusDraft, rec.Code)
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &adminList); err != nil {
+		t.Fatalf("decode admin list (filter by status %s): %v", postRepository.PostStatusDraft, err)
+	}
+
+	if adminList.Total != 1 || (len(adminList.Items) == 1 && adminList.Items[0].Slug != "wip-1") {
+		t.Errorf("admin ?status=%s: got %d items (first=%q), want 1 (wip-1)", postRepository.PostStatusDraft, adminList.Total, adminList.Items[0].Slug)
+	}
+
+	// Admin list with status that do not exists
+	rec = doJSON(t, env.app.r, http.MethodGet, "/admin/posts?status=bogus", env.tokens["Admin"], "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("admin ?status=bogus: got %d, want 400", rec.Code)
+	}
+}
+
+func TestCreatePostDefaultsToDraft(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	body := `{"title": "new draft", "markdown_content": "markdown body", "category_id": 1}`
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], body, "", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: got %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	var created postsrepo.Post
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if created.Status != postRepository.PostStatusDraft {
+		t.Errorf("default status: got %q, want %s", created.Status, postRepository.PostStatusDraft)
+	}
+
+	// public list must not contain it.
+	rec = doJSON(t, env.app.r, http.MethodGet, "/posts", "", "")
+	var list struct {
+		Items []postsrepo.Post `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode public: %v", err)
+	}
+
+	for _, p := range list.Items {
+		if p.ID == created.ID {
+			t.Errorf("new %s leaked onto public /posts list", postRepository.PostStatusDraft)
+		}
+	}
+}
+
+func TestCreatePostAcceptsExplicitStatus(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	body := fmt.Sprintf(`{"title": "go live", "markdown_content": "markdown body", "category_id": 1, "status": "%s"}`, postRepository.PostStatusPublished)
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], body, "", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: got %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	var created postsrepo.Post
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if created.Status != postRepository.PostStatusPublished {
+		t.Errorf("status: got %q, want %s", created.Status, postRepository.PostStatusPublished)
+	}
+
+	// public single read works
+	rec = doJSON(t, env.app.r, http.MethodGet, "/posts/"+created.Slug, "", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("public read of freshly published: got %d", rec.Code)
+	}
+}
+
+func TestCreatePostRejectsNonExistingStatus(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	body := `{"title": "bogus", "markdown_content": "markdown body", "category_id": 1, "status": "sneaky"}`
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], body, "", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	msg := fmt.Sprintf("must be one of: %s, %s, %s", postRepository.PostStatusDraft, postRepository.PostStatusPublished, postRepository.PostStatusArchived)
+	assertValidationFields(t, rec.Body.Bytes(), map[string]string{"status": msg})
+}
+
+func TestUpdateStatusChange(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	body := `{"title": "go live", "markdown_content": "markdown body", "category_id": 1}`
+	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Admin"], body, "", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: got %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	var created postsrepo.Post
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if created.Status != postRepository.PostStatusDraft {
+		t.Errorf("expected %s, got %q", postRepository.PostStatusDraft, created.Status)
+	}
+
+	publishBody := fmt.Sprintf(`{"title": "go live", "markdown_content": "markdown body", "category_id": 1, "status": "%s"}`, postRepository.PostStatusPublished)
+	updateEndpoint := fmt.Sprintf("/admin/posts/%d", created.ID)
+	rec = doMultipartPost(t, env.app.r, http.MethodPut, updateEndpoint, env.tokens["Admin"], publishBody, "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish PUT: got %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var published postsrepo.Post
+	if err := json.Unmarshal(rec.Body.Bytes(), &published); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if published.Status != postRepository.PostStatusPublished {
+		t.Errorf("after publish: got %q, want %s", published.Status, postRepository.PostStatusPublished)
+	}
+
+	keepBody := `{"title": "go live", "markdown_content": "markdown body", "category_id": 1}`
+	rec = doMultipartPost(t, env.app.r, http.MethodPut, updateEndpoint, env.tokens["Admin"], keepBody, "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("keep PUT: got %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var kept postsrepo.Post
+	if err := json.Unmarshal(rec.Body.Bytes(), &kept); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if kept.Status != postRepository.PostStatusPublished {
+		t.Errorf("omitted status should preserve existing: got %q, want %s", kept.Status, postRepository.PostStatusPublished)
+	}
 }
 
 func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	t.Helper()
+	type validationResp struct {
+		Error   string            `json:"error"`
+		Message string            `json:"message"`
+		Fields  map[string]string `json:"fields"`
+	}
+
 	var v validationResp
 	if err := json.Unmarshal(body, &v); err != nil {
 		t.Fatalf("decode validation response: %v; body=%s", err, string(body))
