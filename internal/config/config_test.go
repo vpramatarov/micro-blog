@@ -53,20 +53,14 @@ func TestLoad(t *testing.T) {
 			if cfg == nil {
 				t.Fatal("Load returned nil")
 			}
+
 			if cfg.Port != tt.wantPort {
 				t.Errorf("Port = %d, want %d", cfg.Port, tt.wantPort)
 			}
-			if cfg.DB_STRING != getConnectionDsn(tt.wantDB) {
+
+			if cfg.DB_STRING != tt.wantDB {
 				t.Errorf("DB_STRING = %q, want %q", cfg.DB_STRING, tt.wantDB)
 			}
 		})
 	}
-}
-
-func getConnectionDsn(path string) string {
-	if path == "" {
-		return path
-	}
-
-	return "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 }

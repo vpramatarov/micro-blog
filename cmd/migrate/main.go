@@ -8,9 +8,9 @@ import (
 	"os"
 
 	"github.com/pressly/goose/v3"
-	"github.com/vpramatarov/micro-blog/cmd"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
+	"github.com/vpramatarov/micro-blog/internal/migrate"
 
 	_ "modernc.org/sqlite"
 )
@@ -26,14 +26,15 @@ func main() {
 	command := os.Args[1]
 
 	cfg := config.Load()
-	db, err := sql.Open("sqlite", cfg.DB_STRING)
+	db, err := sql.Open("sqlite", cfg.DatabaseDSN())
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
 
-	goose.SetDialect("sqlite3")
-	goose.SetBaseFS(cmd.EmbedMigrations)
+	if err := migrate.Setup(); err != nil {
+		log.Fatalf("goose setup: %v", err)
+	}
 
 	if command == "seed" {
 		runSeedData(db, cfg.ADMIN_SEED_PASSWORD)
@@ -42,7 +43,7 @@ func main() {
 
 	fmt.Printf("Running migration command: '%s'...\n", command)
 
-	err = goose.RunContext(context.Background(), command, db, "migrate/migrations") // mirror cmd.EmbedMigrations path
+	err = goose.RunContext(context.Background(), command, db, migrate.DIR)
 	if err != nil {
 		log.Fatalf("Goose execution failed: %v\n", err)
 	}

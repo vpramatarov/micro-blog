@@ -14,6 +14,7 @@ import (
 	"time"
 
 	chiMW "github.com/go-chi/chi/v5/middleware"
+	"github.com/pressly/goose/v3"
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	categoryService "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
@@ -40,6 +41,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/config"
 	"github.com/vpramatarov/micro-blog/internal/imagex"
 	jobsWorker "github.com/vpramatarov/micro-blog/internal/jobs"
+	"github.com/vpramatarov/micro-blog/internal/migrate"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	"github.com/vpramatarov/micro-blog/internal/uploads"
 	_ "modernc.org/sqlite"
@@ -63,7 +65,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", cfg.DB_STRING)
+	db, err := sql.Open("sqlite", cfg.DatabaseDSN())
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
@@ -71,6 +73,15 @@ func main() {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(time.Hour)
 	defer db.Close()
+
+	// Execute migrations
+	goose.SetVerbose(cfg.IsDev())
+	migrationVersion, err := migrate.Up(db)
+	if err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+
+	logger.Info("migrations applied", "version", migrationVersion, "env", cfg.Env)
 
 	usersRepo := userRepository.New(db)
 	rbacRepo := rbacRepository.New(db)

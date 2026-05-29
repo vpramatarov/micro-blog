@@ -24,11 +24,13 @@ type Config struct {
 	JWTIssuer           string
 	JWTAudience         string
 	CookieSecure        bool
+	Env                 string // Env is value from GO_ENV "dev" or "prod" (default to "prod" when GO_ENV is unset).
 }
 
 func Load() *Config {
+	goEnv := strings.ToLower(strings.TrimSpace(getEnv("GO_ENV", "prod")))
 	// Match Linux/macOS (".test", "/_test/") and Windows (".test.exe", "\_test\").
-	isTest := strings.Contains(os.Args[0], ".test") || strings.Contains(os.Args[0], "_test")
+	isTest := strings.Contains(os.Args[0], ".test") || strings.Contains(os.Args[0], "_test") || goEnv == "test"
 
 	if isTest {
 		log.Println("Test mode detected! Loading .env.test...")
@@ -44,16 +46,9 @@ func Load() *Config {
 		log.Println("WARNING: JWT_SECRET is empty; tokens will be signed with an insecure default")
 	}
 
-	// SQLite pragmas, all per-connection so the URI form applies them on every pooled conn: foreign_keys enforces ON DELETE CASCADE; journal_mode=WAL
-	// unblocks readers during writes; busy_timeout(5000) makes contending writers wait 5s instead of erroring with SQLITE_BUSY.
-	dsn := getEnv("DB_STRING", "")
-	if dsn != "" {
-		dsn = "file:" + dsn + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
-	}
-
 	return &Config{
 		Port:                getEnvAsInt("PORT", 8080),
-		DB_STRING:           dsn,
+		DB_STRING:           getEnv("DB_STRING", ""),
 		ADMIN_SEED_PASSWORD: getEnv("ADMIN_SEED_PASSWORD", "changeme"),
 		JWTSecret:           secret,
 		JWTAccessTTL:        getEnvAsDuration("JWT_ACCESS_TTL", 15*time.Minute),
@@ -61,6 +56,7 @@ func Load() *Config {
 		JWTIssuer:           getEnv("JWT_ISSUER", "micro-blog"),
 		JWTAudience:         getEnv("JWT_AUDIENCE", "micro-blog-api"),
 		CookieSecure:        getEnvAsBool("COOKIE_SECURE", true),
+		Env:                 goEnv,
 	}
 }
 
@@ -85,7 +81,25 @@ func (c *Config) ValidateForServer() error {
 		return fmt.Errorf("JWT_AUDIENCE is required")
 	}
 
+	if c.Env != "dev" && c.Env != "prod" && c.Env != "test" {
+		return fmt.Errorf("GO_ENV must be 'dev', 'test' or 'prod'; got: %q", c.Env)
+	}
+
 	return nil
+}
+
+// returns connection string.
+func (c *Config) DatabaseDSN() string {
+	// SQLite pragmas, all per-connection so the URI form applies them on every
+	// pooled conn: foreign_keys enforces ON DELETE CASCADE; journal_mode=WAL
+	// unblocks readers during writes; busy_timeout(5000) makes contending
+	// writers wait 5s instead of erroring with SQLITE_BUSY.
+	return "file:" + c.DB_STRING + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+}
+
+// reports whether the server is running in the dev or prod environment.
+func (c *Config) IsDev() bool {
+	return c.Env == "dev"
 }
 
 func getEnv(key, defaultVal string) string {
