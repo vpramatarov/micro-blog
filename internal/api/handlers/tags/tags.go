@@ -2,6 +2,7 @@
 package tags
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 	tagsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
@@ -29,6 +31,23 @@ func New(tagsRepo *tagsrepo.Repo, log *slog.Logger) *Service {
 
 type tagWriteRequest struct {
 	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"`
+}
+
+func (r *tagWriteRequest) normalize() {
+	r.Name = strings.TrimSpace(r.Name)
+	r.Slug = strings.TrimSpace(r.Slug)
+}
+
+func (r *tagWriteRequest) Validate() validation.Errors {
+	e := validation.New()
+	e.Add("name", validation.Name(r.Name))
+
+	if r.Slug != "" {
+		e.Add("slug", validation.Slug(r.Slug))
+	}
+
+	return e
 }
 
 // List — GET /tags. Public. Paginated via ?page / ?per_page.
@@ -65,21 +84,26 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validation.Name(req.Name); msg != "" {
-		httpx.WriteValidationError(w, map[string]string{"name": msg})
+	req.normalize()
+	errs := req.Validate()
+	if !errs.IsEmpty() {
+		httpx.WriteValidationError(w, errs)
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
-	id, err := s.Tags.Create(r.Context(), name)
+	id, err := slug.Allocate(r.Context(), s.Tags, req.Name, req.Slug, 0, s.createFn(r.Context(), req.Name))
 	if err != nil {
-		if errors.Is(err, tagsrepo.ErrTagDuplicate) {
+		switch {
+		case errors.Is(err, slug.ErrEmptyGeneratedSlug):
+			httpx.WriteValidationError(w, map[string]string{"name": "must contain at least one Latin or Cyrillic letter or digit"})
+		case errors.Is(err, tagsrepo.ErrTagDuplicate):
 			httpx.WriteError(w, http.StatusConflict, "duplicate", "tag with this name already exists")
-			return
+		case errors.Is(err, slug.ErrDuplicate):
+			httpx.WriteError(w, http.StatusConflict, "slug_conflict", "tag with this slug already exists")
+		default:
+			s.Log.Error("create tag", "err", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create tag")
 		}
-
-		s.Log.Error("create tag", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create tag")
 		return
 	}
 
@@ -107,23 +131,43 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validation.Name(req.Name); msg != "" {
-		httpx.WriteValidationError(w, map[string]string{"name": msg})
+	req.normalize()
+	errs := req.Validate()
+	if !errs.IsEmpty() {
+		httpx.WriteValidationError(w, errs)
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
-	if err := s.Tags.Update(r.Context(), id, name); err != nil {
+	existing, err := s.Tags.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, tagsrepo.ErrTagNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "tag not found")
+			return
+		}
+
+		s.Log.Error("get tag for update", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tag")
+		return
+	}
+
+	desiredSlug := req.Slug
+	if desiredSlug == "" {
+		desiredSlug = existing.Slug
+	}
+
+	_, err = slug.Allocate(r.Context(), s.Tags, req.Name, desiredSlug, id, s.updateFn(r.Context(), id, req.Name))
+	if err != nil {
 		switch {
 		case errors.Is(err, tagsrepo.ErrTagNotFound):
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "tag not found")
 		case errors.Is(err, tagsrepo.ErrTagDuplicate):
 			httpx.WriteError(w, http.StatusConflict, "duplicate", "tag with this name already exists")
+		case errors.Is(err, slug.ErrDuplicate):
+			httpx.WriteError(w, http.StatusConflict, "slug_conflict", "tag with this slug already exists")
 		default:
 			s.Log.Error("update tag", "err", err, "id", id)
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tag")
 		}
-		
 		return
 	}
 
@@ -158,4 +202,16 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) createFn(ctx context.Context, name string) func(string) (int64, error) {
+	return func(slugCandidate string) (int64, error) {
+		return s.Tags.Create(ctx, name, slugCandidate)
+	}
+}
+
+func (s *Service) updateFn(ctx context.Context, id int64, name string) func(string) (struct{}, error) {
+	return func(slugCandidate string) (struct{}, error) {
+		return struct{}{}, s.Tags.Update(ctx, id, name, slugCandidate)
+	}
 }

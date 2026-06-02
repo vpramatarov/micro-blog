@@ -27,9 +27,13 @@ const (
 	MarkdownMinLen = 10
 	NameMinLen     = 1
 	NameMaxLen     = 50
+	SlugMinLen     = 1
+	SlugMaxLen     = 250
 )
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // Errors collects per-field validation messages keyed by JSON field name.
 // First write wins.
@@ -192,4 +196,20 @@ func PostStatus(s string) string {
 	default:
 		return fmt.Sprintf("must be one of: %s, %s, %s", postRepository.PostStatusDraft, postRepository.PostStatusPublished, postRepository.PostStatusArchived)
 	}
+}
+
+// Slug accepts kebab-case ASCII (1–100 chars after trim).
+// Empty input returns "is required" — handlers that treat empty as "auto-generate from name" must short-circuit before calling this.
+func Slug(s string) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "is required"
+	case len(s) > SlugMaxLen:
+		return fmt.Sprintf("must be at most %d characters", SlugMaxLen)
+	case !slugPattern.MatchString(s):
+		return "may only contain lowercase letters, digits, and hyphens"
+	}
+
+	return ""
 }

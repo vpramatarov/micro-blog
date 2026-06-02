@@ -32,6 +32,13 @@ const roleAuthor string = "Author"
 // MultipartBodyLimit caps the multipart body for write endpoints. 5 MiB image payload + ~64 KiB envelope for form boundary + the JSON `data` field.
 const MultipartBodyLimit = 5*1024*1024 + 64*1024
 
+// errImageRejected is the sentinel returned by Create Post's slug.AllocateForName
+// create-closure when the image pipeline has already written its own response
+// envelope (e.g. 415 unsupported_media_type, 413 payload_too_large) via
+// readAndValidateImage / saveImageAndEnqueue. The handler's error switch
+// checks the imageRespWritten flag and skips the default 500 envelope.
+var errImageRejected = errors.New("posts: image rejected (response already written)")
+
 // PostResponse is the wire-format view: the scalar post columns plus the hydrated category and tags.
 // The embedded postRepository.Post is flattened by encoding/json so the JSON shape is the union of fields, not a nested `post` object.
 //
@@ -50,6 +57,25 @@ type postWriteRequest struct {
 	TagIDs              []int64 `json:"tag_ids"`
 	RemoveFeaturedImage bool    `json:"remove_featured_image"`
 	Status              string  `json:"status"`
+}
+
+// PostsByCategoryResponse wraps the paginated post list with the parent
+// category's identity so the UI can render "Posts in <Category>" without a second API call.
+type PostsByCategoryResponse struct {
+	Category categoryRepository.Category `json:"category"`
+	Items    []PostResponse              `json:"items"`
+	Page     int                         `json:"page"`
+	PerPage  int                         `json:"per_page"`
+	Total    int                         `json:"total"`
+}
+
+// PostsByTagResponse — same wrapper for the tag pivot.
+type PostsByTagResponse struct {
+	Tag     tagRepository.Tag `json:"tag"`
+	Items   []PostResponse    `json:"items"`
+	Page    int               `json:"page"`
+	PerPage int               `json:"per_page"`
+	Total   int               `json:"total"`
 }
 
 func (r *postWriteRequest) normalize() {
@@ -331,26 +357,18 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Image is validated AND saved BEFORE the DB INSERT so any failure (bad format, too small, disk full) surfaces as a clean 4xx with no post row to clean up.
-	// The reverse — INSERT first, file last — would leave orphaned rows on every image-validation error.
-	var imagePath string
-	if fileHeader != nil {
-		encoded, format, ext, imgOK := s.readAndValidateImage(w, fileHeader)
-		if !imgOK {
-			return
-		}
-
-		imagePath, imgOK = s.saveImageAndEnqueue(w, r, fileHeader, encoded, format, ext)
-		if !imgOK {
-			return
-		}
-	}
-
-	id, err := s.createWithSlug(r, postRepository.PostInsert{
-		AuthorID: claims.UserID, CategoryID: req.CategoryID,
-		Title: req.Title, Markdown: req.Markdown, HTML: html,
-		Slug: base, FeaturedImagePath: imagePath, Status: req.Status,
-	})
+	// Slug allocation + image save + INSERT all live inside slug.AllocateForName.
+	// The helper runs Generate on the title FIRST; the title-yields-empty-slug
+	// check returns ErrEmptyGeneratedSlug before the closure is ever entered,
+	// so we never save an image for a doomed post. Image save itself lives
+	// inside the closure, guarded by imageSaveAttempted so it runs exactly
+	// once even when a slug-UNIQUE race triggers the closure twice.
+	var (
+		imagePath          string
+		imageSaveAttempted bool
+		imageRespWritten   bool // readAndValidateImage / saveImageAndEnqueue wrote their own envelope
+	)
+	id, err := slug.Allocate(r.Context(), s.Posts, req.Title, "", 0, s.createFn(w, r, claims, req, fileHeader, html, &imagePath, &imageSaveAttempted, &imageRespWritten))
 	if err != nil {
 		// Roll the image back so we don't leak orphans on a failed INSERT.
 		if imagePath != "" {
@@ -361,9 +379,24 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		s.Log.Error("create post", "err", err, "user_id", claims.UserID)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create post")
+		switch {
+		case imageRespWritten:
+			// readAndValidateImage / saveImageAndEnqueue already wrote their own envelope.
+		case errors.Is(err, slug.ErrEmptyGeneratedSlug):
+			httpx.WriteValidationError(w, map[string]string{"title": "must contain at least one Latin or Cyrillic letter or digit"})
+		default:
+			s.Log.Error("create post", "err", err, "user_id", claims.UserID)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create post")
+		}
 		return
+	}
+
+	if len(req.TagIDs) > 0 {
+		if err := s.Tags.ReplaceForPost(r.Context(), id, req.TagIDs); err != nil {
+			s.Log.Error("attach tags", "err", err, "post_id", id)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not attach tags")
+			return
+		}
 	}
 
 	view, err := s.loadView(r, id)
@@ -433,12 +466,6 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base := slug.Generate(req.Title)
-	if base == "" {
-		httpx.WriteValidationError(w, map[string]string{"title": "must contain at least one Latin or Cyrillic letter or digit"})
-		return
-	}
-
 	// Resolve the new image path before touching the DB. Possible outcomes:
 	//   replace: newPath = freshly-saved path, deleteOld = oldPath
 	//   clear  : newPath = "",                deleteOld = oldPath
@@ -450,10 +477,12 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		if !imgOK {
 			return
 		}
+
 		path, imgOK := s.saveImageAndEnqueue(w, r, fileHeader, encoded, format, ext)
 		if !imgOK {
 			return
 		}
+
 		newPath = path
 		deleteOld = oldPath
 	case req.RemoveFeaturedImage:
@@ -463,24 +492,27 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		newPath = oldPath
 	}
 
-	if err := s.updateWithSlug(r, id, postRepository.PostUpdate{
-		CategoryID: req.CategoryID, Title: req.Title,
-		Markdown: req.Markdown, HTML: html, Slug: base,
-		FeaturedImagePath: newPath, Status: newStatus,
-	}); err != nil {
+	// Posts always regenerate slug from the new title — no clientSlug input.
+	// excludeID=id so the row's own slug doesn't count as a self-collision.
+	// AllocateForName runs Generate(title) internally; an empty result surfaces as ErrEmptyGeneratedSlug below (image rollback path covers it).
+	_, err = slug.Allocate(r.Context(), s.Posts, req.Title, "", id, s.updateFn(r, id, req, html, newPath, newStatus))
+	if err != nil {
 		// Roll back any freshly-saved image on UPDATE failure so we don't leak orphans.
 		// We deliberately do NOT touch oldPath here — the existing post still references it.
 		if newPath != "" && newPath != oldPath {
 			_ = s.Storage.DeleteAll(newPath)
 		}
 
-		if errors.Is(err, postRepository.ErrPostNotFound) {
+		switch {
+		case errors.Is(err, slug.ErrEmptyGeneratedSlug):
+			httpx.WriteValidationError(w, map[string]string{"title": "must contain at least one Latin or Cyrillic letter or digit"})
+		case errors.Is(err, postRepository.ErrPostNotFound):
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "post not found")
-			return
+		default:
+			s.Log.Error("update post", "err", err, "id", id)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update post")
 		}
 
-		s.Log.Error("update post", "err", err, "id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update post")
 		return
 	}
 
@@ -547,6 +579,190 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListByCategorySlug — GET /categories/{slug}. Public; only published posts in the category are returned. Unknown slug → 404.
+// Pagination is the same shape as GET /posts.
+func (s *Service) ListByCategorySlug(w http.ResponseWriter, r *http.Request) {
+	cat, ok := s.lookupCategoryBySlug(w, r)
+	if !ok {
+		return
+	}
+
+	s.listByCategory(w, r, cat, 0, postRepository.PostStatusPublished)
+}
+
+// ListByCategorySlugAdmin — GET /admin/categories/{slug}. Authenticated;
+// Author role sees only own posts in this category (closed-loop via claims.UserID), every other role sees all.
+// Accepts ?status= (same enum as /admin/posts).
+func (s *Service) ListByCategorySlugAdmin(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth")
+		return
+	}
+
+	status, ok := parseStatusQuery(w, r)
+	if !ok {
+		return
+	}
+
+	cat, ok := s.lookupCategoryBySlug(w, r)
+	if !ok {
+		return
+	}
+
+	var authorID int64
+	if claims.Role == roleAuthor {
+		authorID = claims.UserID
+	}
+
+	s.listByCategory(w, r, cat, authorID, status)
+}
+
+// ListByTagSlug — GET /tags/{slug}. Public counterpart of the category endpoint; only published posts in the tag are returned.
+func (s *Service) ListByTagSlug(w http.ResponseWriter, r *http.Request) {
+	tag, ok := s.lookupTagBySlug(w, r)
+	if !ok {
+		return
+	}
+
+	s.listByTag(w, r, tag, 0, postRepository.PostStatusPublished)
+}
+
+// ListByTagSlugAdmin — GET /admin/tags/{slug}. Same role-aware filter as the category admin endpoint.
+func (s *Service) ListByTagSlugAdmin(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth")
+		return
+	}
+
+	status, ok := parseStatusQuery(w, r)
+	if !ok {
+		return
+	}
+
+	tag, ok := s.lookupTagBySlug(w, r)
+	if !ok {
+		return
+	}
+
+	var authorID int64
+	if claims.Role == roleAuthor {
+		authorID = claims.UserID
+	}
+
+	s.listByTag(w, r, tag, authorID, status)
+}
+
+// lookupCategoryBySlug resolves the URL slug to a row or writes the standard 404 envelope.
+// Returns (nil, false) on miss or on a 5xx already-written.
+func (s *Service) lookupCategoryBySlug(w http.ResponseWriter, r *http.Request) (*categoryRepository.Category, bool) {
+	slugParam := chi.URLParam(r, "slug")
+	if slugParam == "" {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "category not found")
+		return nil, false
+	}
+
+	cat, err := s.Categories.GetBySlug(r.Context(), slugParam)
+	if err != nil {
+		if errors.Is(err, categoryRepository.ErrCategoryNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "category not found")
+			return nil, false
+		}
+
+		s.Log.Error("get category by slug", "err", err, "slug", slugParam)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load category")
+		return nil, false
+	}
+
+	return cat, true
+}
+
+func (s *Service) lookupTagBySlug(w http.ResponseWriter, r *http.Request) (*tagRepository.Tag, bool) {
+	slugParam := chi.URLParam(r, "slug")
+	if slugParam == "" {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "tag not found")
+		return nil, false
+	}
+
+	tag, err := s.Tags.GetBySlug(r.Context(), slugParam)
+	if err != nil {
+		if errors.Is(err, tagRepository.ErrTagNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "tag not found")
+			return nil, false
+		}
+		s.Log.Error("get tag by slug", "err", err, "slug", slugParam)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not load tag")
+		return nil, false
+	}
+
+	return tag, true
+}
+
+// listByCategory is the shared body for the public and admin endpoints.
+// authorID=0 / status="" mean "no filter" — sentinels follow the repo layer convention.
+func (s *Service) listByCategory(w http.ResponseWriter, r *http.Request, cat *categoryRepository.Category, authorID int64, status string) {
+	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
+	if !ok {
+		return
+	}
+
+	total, err := s.Posts.CountByCategoryID(r.Context(), cat.ID, authorID, status)
+	if err != nil {
+		s.Log.Error("count posts by category", "err", err, "category_id", cat.ID)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	rows, err := s.Posts.ListByCategoryID(r.Context(), cat.ID, authorID, status, limit, offset)
+	if err != nil {
+		s.Log.Error("list posts by category", "err", err, "category_id", cat.ID)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	items, err := s.hydrateMany(r, rows)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, PostsByCategoryResponse{
+		Category: *cat, Items: items, Page: page, PerPage: perPage, Total: total,
+	})
+}
+
+func (s *Service) listByTag(w http.ResponseWriter, r *http.Request, tag *tagRepository.Tag, authorID int64, status string) {
+	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
+	if !ok {
+		return
+	}
+
+	total, err := s.Posts.CountByTagID(r.Context(), tag.ID, authorID, status)
+	if err != nil {
+		s.Log.Error("count posts by tag", "err", err, "tag_id", tag.ID)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	rows, err := s.Posts.ListByTagID(r.Context(), tag.ID, authorID, status, limit, offset)
+	if err != nil {
+		s.Log.Error("list posts by tag", "err", err, "tag_id", tag.ID)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	items, err := s.hydrateMany(r, rows)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, PostsByTagResponse{
+		Tag: *tag, Items: items, Page: page, PerPage: perPage, Total: total,
+	})
 }
 
 func (s *Service) listPostsForRole(r *http.Request, claims *auth.Claims, status string, limit, offset int) ([]postRepository.Post, error) {
@@ -628,53 +844,6 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 	}
 
 	return items, nil
-}
-
-// createWithSlug resolves a free slug variant and inserts the post.
-// Retries once on the rare race where two concurrent writers both pick the same suffix between FindAvailableSlug and INSERT.
-func (s *Service) createWithSlug(r *http.Request, ins postRepository.PostInsert) (int64, error) {
-	for range 2 {
-		candidate, err := s.Posts.FindAvailableSlug(r.Context(), ins.Slug, 0)
-		if err != nil {
-			return 0, err
-		}
-
-		insertion := ins
-		insertion.Slug = candidate
-		id, err := s.Posts.Create(r.Context(), insertion)
-		if err == nil {
-			return id, nil
-		}
-
-		if !errors.Is(err, postRepository.ErrPostDuplicateSlug) {
-			return 0, err
-		}
-		// Lost the race against another writer — try again.
-	}
-
-	return 0, errors.New("posts: could not allocate a free slug after retry")
-}
-
-func (s *Service) updateWithSlug(r *http.Request, id int64, postUpdate postRepository.PostUpdate) error {
-	for range 2 {
-		candidate, err := s.Posts.FindAvailableSlug(r.Context(), postUpdate.Slug, id)
-		if err != nil {
-			return err
-		}
-
-		write := postUpdate
-		write.Slug = candidate
-		err = s.Posts.Update(r.Context(), id, write)
-		if err == nil {
-			return nil
-		}
-
-		if !errors.Is(err, postRepository.ErrPostDuplicateSlug) {
-			return err
-		}
-	}
-
-	return errors.New("posts: could not allocate a free slug after retry")
 }
 
 // validateTaxonomies performs the second-pass DB existence checks for category_id (must point at an existing row) and tag_ids (every id must exist).
@@ -812,6 +981,52 @@ func (s *Service) saveImageAndEnqueue(w http.ResponseWriter, r *http.Request, he
 	}
 
 	return relPath, true
+}
+
+func (s *Service) createFn(
+	w http.ResponseWriter,
+	r *http.Request,
+	claims *auth.Claims,
+	req postWriteRequest,
+	fileHeader *multipart.FileHeader,
+	html string,
+	imagePath *string,
+	imageSaveAttempted *bool,
+	imageRespWritten *bool,
+) func(string) (int64, error) {
+	return func(slugCandidate string) (int64, error) {
+		if !*imageSaveAttempted && fileHeader != nil {
+			*imageSaveAttempted = true // set BEFORE the save so a panic mid-save still blocks a retry attempt
+			encoded, format, ext, ok := s.readAndValidateImage(w, fileHeader)
+			if !ok {
+				*imageRespWritten = true
+				return 0, errImageRejected
+			}
+
+			path, ok := s.saveImageAndEnqueue(w, r, fileHeader, encoded, format, ext)
+			if !ok {
+				*imageRespWritten = true
+				return 0, errImageRejected
+			}
+
+			*imagePath = path
+		}
+
+		return s.Posts.Create(r.Context(), postRepository.PostInsert{
+			AuthorID: claims.UserID, CategoryID: req.CategoryID, Title: req.Title,
+			Markdown: req.Markdown, HTML: html, Slug: slugCandidate,
+			FeaturedImagePath: *imagePath, Status: req.Status,
+		})
+	}
+}
+
+func (s *Service) updateFn(r *http.Request, id int64, req postWriteRequest, html, path, status string) func(string) (struct{}, error) {
+	return func(slugCandidate string) (struct{}, error) {
+		return struct{}{}, s.Posts.Update(r.Context(), id, postRepository.PostUpdate{
+			CategoryID: req.CategoryID, Title: req.Title, Markdown: req.Markdown, HTML: html,
+			Slug: slugCandidate, FeaturedImagePath: path, Status: status,
+		})
+	}
 }
 
 func parseStatusQuery(w http.ResponseWriter, r *http.Request) (string, bool) {

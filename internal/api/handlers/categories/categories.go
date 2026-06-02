@@ -3,6 +3,7 @@
 package categories
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
 	categoriesRepo "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
@@ -31,6 +33,23 @@ func New(categoriesRepo *categoriesRepo.Repo, log *slog.Logger) *Service {
 
 type categoryWriteRequest struct {
 	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"`
+}
+
+func (r *categoryWriteRequest) normalize() {
+	r.Name = strings.TrimSpace(r.Name)
+	r.Slug = strings.TrimSpace(r.Slug)
+}
+
+func (r *categoryWriteRequest) Validate() validation.Errors {
+	e := validation.New()
+	e.Add("name", validation.Name(r.Name))
+
+	if r.Slug != "" {
+		e.Add("slug", validation.Slug(r.Slug))
+	}
+
+	return e
 }
 
 // List — GET /categories. Public. Paginated via ?page / ?per_page.
@@ -67,16 +86,27 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validation.Name(req.Name); msg != "" {
-		httpx.WriteValidationError(w, map[string]string{"name": msg})
+	req.normalize()
+	errs := req.Validate()
+	if !errs.IsEmpty() {
+		httpx.WriteValidationError(w, errs)
 		return
 	}
-	name := strings.TrimSpace(req.Name)
 
-	id, err := s.Categories.Create(r.Context(), name)
+	id, err := slug.Allocate(r.Context(), s.Categories, req.Name, req.Slug, 0, s.createFn(r.Context(), req.Name))
 	if err != nil {
+		if errors.Is(err, slug.ErrEmptyGeneratedSlug) {
+			httpx.WriteValidationError(w, map[string]string{"name": "must contain at least one Latin or Cyrillic letter or digit"})
+			return
+		}
+
 		if errors.Is(err, categoriesRepo.ErrCategoryDuplicate) {
 			httpx.WriteError(w, http.StatusConflict, "duplicate", "category with this name already exists")
+			return
+		}
+
+		if errors.Is(err, slug.ErrDuplicate) {
+			httpx.WriteError(w, http.StatusConflict, "slug_conflict", "category with this slug already exists")
 			return
 		}
 
@@ -109,19 +139,39 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validation.Name(req.Name); msg != "" {
-		httpx.WriteValidationError(w, map[string]string{"name": msg})
+	req.normalize()
+	errs := req.Validate()
+	if !errs.IsEmpty() {
+		httpx.WriteValidationError(w, errs)
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
+	// Pre-load gives us the 404 envelope path AND the existing slug for the preserve-on-omit fallback.
+	existing, err := s.Categories.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, categoriesRepo.ErrCategoryNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "category not found")
+			return
+		}
+		s.Log.Error("get category for update", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update category")
+		return
+	}
 
-	if err := s.Categories.Update(r.Context(), id, name); err != nil {
+	desiredSlug := req.Slug
+	if desiredSlug == "" {
+		desiredSlug = existing.Slug
+	}
+
+	_, err = slug.Allocate(r.Context(), s.Categories, req.Name, desiredSlug, id, s.updateFn(r.Context(), id, req.Name))
+	if err != nil {
 		switch {
 		case errors.Is(err, categoriesRepo.ErrCategoryNotFound):
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "category not found")
 		case errors.Is(err, categoriesRepo.ErrCategoryDuplicate):
 			httpx.WriteError(w, http.StatusConflict, "duplicate", "category with this name already exists")
+		case errors.Is(err, slug.ErrDuplicate):
+			httpx.WriteError(w, http.StatusConflict, "slug_conflict", "category with this slug already exists")
 		default:
 			s.Log.Error("update category", "err", err, "id", id)
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update category")
@@ -163,4 +213,16 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) createFn(ctx context.Context, name string) func(string) (int64, error) {
+	return func(slugCandidate string) (int64, error) {
+		return s.Categories.Create(ctx, name, slugCandidate)
+	}
+}
+
+func (s *Service) updateFn(ctx context.Context, id int64, name string) func(string) (struct{}, error) {
+	return func(slugCandidate string) (struct{}, error) {
+		return struct{}{}, s.Categories.Update(ctx, id, name, slugCandidate)
+	}
 }

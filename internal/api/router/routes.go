@@ -64,9 +64,11 @@ type Middlewares struct {
 //   - GET /posts                        public — list posts (every response item carries a hashid `code` AND a `slug`)
 //   - GET /posts/{slug}                 public — read a post by its auto-generated slug
 //   - GET /p/{code}                     public — read a post by its sqids hashid (was /posts/{code} pre-categories)
-//   - GET /s/{code}                     public — URL-shortener resolution; 302 to same-origin targets, HTML template for exernal hosts
+//   - GET /s/{code}                     public — URL-shortener resolution; 302 to same-origin targets, HTML interstitial for external hosts
 //   - GET /categories,
-//     GET /tags                         public — read-only taxonomy listings
+//     GET /categories/{slug},
+//     GET /tags,
+//     GET /tags/{slug}                  public — taxonomy listings + posts-by-pivot
 //   - GET /uploads/*                    public — static file serving for post featured images and variants
 //   - GET /openapi.yaml,
 //     GET /openapi.json,
@@ -79,7 +81,9 @@ type Middlewares struct {
 //     PUT    /api/shortlinks/{id},
 //     DELETE /api/shortlinks/{id}               bouncer-gated by shortlink:create/edit/delete
 //   - /admin/*                          authenticated; sub-policies below
-//   - GET /admin/posts              any authenticated user; Authors see only own posts
+//   - GET /admin/posts,
+//     GET /admin/categories/{slug},
+//     GET /admin/tags/{slug}        any authenticated user; Authors see only own posts
 //   - POST /admin/posts,
 //     PUT /admin/posts/{id},
 //     DELETE /admin/posts/{id}      bouncer-gated: Admin/Editor=all, Author=own, Subscriber=denied
@@ -115,7 +119,9 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 
 	// Public taxonomy reads.
 	r.Get("/categories", srvc.Categories.List)
+	r.Get("/categories/{slug}", srvc.Posts.ListByCategorySlug)
 	r.Get("/tags", srvc.Tags.List)
+	r.Get("/tags/{slug}", srvc.Posts.ListByTagSlug)
 
 	// Public static asset serving for uploaded post images. The handler rejects path traversal and 404s for missing files.
 	// Skipped entirely when UploadsRoot is empty (tests that don't exercise uploads).
@@ -184,6 +190,9 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 
 		// Authenticated list available to every role. ListAdmin filters the result set by role (Authors see only their own posts).
 		r.Get("/posts", srvc.Posts.ListAdmin)
+
+		r.Get("/categories/{slug}", srvc.Posts.ListByCategorySlugAdmin)
+		r.Get("/tags/{slug}", srvc.Posts.ListByTagSlugAdmin)
 
 		// Post writes — bouncer enforces post:create / post:edit / post:delete
 		// against the role's scope. Authors can only act on their own posts;

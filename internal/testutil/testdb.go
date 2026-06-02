@@ -174,7 +174,7 @@ func wipeTables(db *sql.DB) error {
 			return fmt.Errorf("reset autoincrement key for %s table: %w", name, err)
 		}
 
-		if _, err := db.Exec(`INSERT OR IGNORE INTO categories (id, name) VALUES (1, 'Uncategorized')`); err != nil {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO categories (id, name, slug) VALUES (1, 'Uncategorized', 'uncategorized')`); err != nil {
 			return fmt.Errorf("reseed categories: %w", err)
 		}
 	}

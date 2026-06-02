@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 )
 
 const DB_TABLE string = "posts"
@@ -86,11 +86,12 @@ type PostUpdate struct {
 }
 
 type Repo struct {
-	db *sql.DB
+	db         *sql.DB
+	slugFinder *slug.Finder
 }
 
 func New(db *sql.DB) *Repo {
-	return &Repo{db: db}
+	return &Repo{db: db, slugFinder: slug.NewFinder(db, slug.TablePosts)}
 }
 
 func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
@@ -129,7 +130,7 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 }
 
 // GetBySlug is the read path behind GET /posts/{slug}. Public — the slug is taken from the URL and looked up directly.
-func (r *Repo) GetBySlug(ctx context.Context, slug string) (*Post, error) {
+func (r *Repo) GetBySlug(ctx context.Context, slugStr string) (*Post, error) {
 	q := fmt.Sprintf(`
 		SELECT %s FROM %s AS p
 		INNER JOIN users AS u ON u.id = p.author_id
@@ -137,7 +138,7 @@ func (r *Repo) GetBySlug(ctx context.Context, slug string) (*Post, error) {
 		WHERE p.slug = ? AND p.status = '%s'`,
 		POSTS_SELECT_COLUMS, DB_TABLE, PostStatusPublished)
 	var p Post
-	err := r.db.QueryRowContext(ctx, q, slug).Scan(
+	err := r.db.QueryRowContext(ctx, q, slugStr).Scan(
 		&p.ID,
 		&p.AuthorID,
 		&p.AuthorName,
@@ -315,6 +316,101 @@ func (r *Repo) ListByAuthor(ctx context.Context, authorID int64, status string, 
 	return r.query(ctx, q, args...)
 }
 
+// ListByCategoryID returns the page of posts in `categoryID`, newest-first.
+// Both `authorID` and `status` are "0 / empty = no filter"
+func (r *Repo) ListByCategoryID(ctx context.Context, categoryID, authorID int64, status string, limit, offset int) ([]Post, error) {
+	q := fmt.Sprintf(`
+		SELECT %s FROM %s AS p
+		INNER JOIN users AS u ON u.id = p.author_id
+		INNER JOIN categories AS c ON c.id = p.category_id
+		WHERE p.category_id = ?`,
+		POSTS_SELECT_COLUMS, DB_TABLE)
+
+	args := []any{categoryID}
+	if authorID != 0 {
+		q += ` AND p.author_id = ?`
+		args = append(args, authorID)
+	}
+
+	if status != "" {
+		q += ` AND p.status = ?`
+		args = append(args, status)
+	}
+
+	q += ` ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	return r.query(ctx, q, args...)
+}
+
+func (r *Repo) CountByCategoryID(ctx context.Context, categoryID, authorID int64, status string) (int, error) {
+	q := `SELECT COUNT(*) FROM posts WHERE category_id = ?`
+	args := []any{categoryID}
+	if authorID != 0 {
+		q += ` AND author_id = ?`
+		args = append(args, authorID)
+	}
+
+	if status != "" {
+		q += ` AND status = ?`
+		args = append(args, status)
+	}
+
+	var n int
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count posts by category: %w", err)
+	}
+
+	return n, nil
+}
+
+// ListByTagID returns the page of posts attached to `tagID`.
+// The M:N join goes through post_tags;
+// idx_post_tags_tag keeps the reverse-direction lookup indexed. authorID / status sentinels mirror ListPostsByCategoryID.
+func (r *Repo) ListByTagID(ctx context.Context, tagID, authorID int64, status string, limit, offset int) ([]Post, error) {
+	q := fmt.Sprintf(`
+		SELECT %s FROM %s AS p
+		INNER JOIN users AS u ON u.id = p.author_id
+		INNER JOIN categories AS c ON c.id = p.category_id
+		INNER JOIN post_tags pt ON pt.post_id = p.id
+		WHERE pt.tag_id = ?`,
+		POSTS_SELECT_COLUMS, DB_TABLE)
+	args := []any{tagID}
+	if authorID != 0 {
+		q += ` AND p.author_id = ?`
+		args = append(args, authorID)
+	}
+
+	if status != "" {
+		q += ` AND p.status = ?`
+		args = append(args, status)
+	}
+
+	q += ` ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	return r.query(ctx, q, args...)
+}
+
+func (r *Repo) CountByTagID(ctx context.Context, tagID, authorID int64, status string) (int, error) {
+	q := `SELECT COUNT(*) FROM posts p INNER JOIN post_tags pt ON pt.post_id = p.id WHERE pt.tag_id = ?`
+	args := []any{tagID}
+	if authorID != 0 {
+		q += ` AND p.author_id = ?`
+		args = append(args, authorID)
+	}
+
+	if status != "" {
+		q += ` AND p.status = ?`
+		args = append(args, status)
+	}
+
+	var n int
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count posts by tag: %w", err)
+	}
+
+	return n, nil
+}
+
 func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post, error) {
 	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
@@ -352,41 +448,11 @@ func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post,
 	return posts, nil
 }
 
-// FindAvailableSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
+// GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
 // `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
 //
 // The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
 // A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
-func (r *Repo) FindAvailableSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
-	q := fmt.Sprintf(`SELECT slug FROM %s WHERE (slug = ? OR slug LIKE ?) AND id != ?`, DB_TABLE)
-	rows, err := r.db.QueryContext(ctx, q, base, base+"-%", excludePostID)
-	if err != nil {
-		return "", fmt.Errorf("find available slug: %w", err)
-	}
-	defer rows.Close()
-
-	taken := make(map[string]struct{})
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return "", fmt.Errorf("scan slug: %w", err)
-		}
-
-		taken[s] = struct{}{}
-	}
-
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("iterate slugs: %w", err)
-	}
-
-	if _, conflict := taken[base]; !conflict {
-		return base, nil
-	}
-
-	for i := 2; ; i++ {
-		candidate := base + "-" + strconv.Itoa(i)
-		if _, conflict := taken[candidate]; !conflict {
-			return candidate, nil
-		}
-	}
+func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
+	return r.slugFinder.Generate(ctx, base, excludePostID)
 }

@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 )
 
 const DB_TABLE string = "categories"
+
+const CATEGORIES_COLUMNS string = "id, name, slug, created_at"
 
 // ErrCategoryNotFound is returned when a SELECT/UPDATE/DELETE targets an id or name that does not exist.
 var ErrCategoryNotFound = errors.New("category not found")
@@ -28,22 +31,28 @@ var ErrCategoryInUse = errors.New("category in use by posts")
 type Category struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 // Repo wraps a *sql.DB for categories-table queries.
 type Repo struct {
-	db *sql.DB
+	db         *sql.DB
+	slugFinder *slug.Finder
 }
 
 func New(db *sql.DB) *Repo {
-	return &Repo{db: db}
+	return &Repo{db: db, slugFinder: slug.NewFinder(db, slug.TableCategories)}
 }
 
-func (r *Repo) Create(ctx context.Context, name string) (int64, error) {
-	q := fmt.Sprintf(`INSERT INTO %s (name) VALUES (?)`, DB_TABLE)
-	res, err := r.db.ExecContext(ctx, q, name)
+func (r *Repo) Create(ctx context.Context, name string, slugStr string) (int64, error) {
+	q := fmt.Sprintf(`INSERT INTO %s (name, slug) VALUES (?, ?)`, DB_TABLE)
+	res, err := r.db.ExecContext(ctx, q, name, slugStr)
 	if err != nil {
+		if repository.IsSlugUniqueViolation(err, "categories.slug") {
+			return 0, slug.ErrDuplicate
+		}
+
 		if repository.IsUniqueViolation(err) {
 			return 0, ErrCategoryDuplicate
 		}
@@ -60,9 +69,24 @@ func (r *Repo) Create(ctx context.Context, name string) (int64, error) {
 }
 
 func (r *Repo) GetByID(ctx context.Context, id int64) (*Category, error) {
-	q := fmt.Sprintf(`SELECT id, name, created_at FROM %s WHERE id = ?`, DB_TABLE)
+	q := fmt.Sprintf(`SELECT %s FROM %s WHERE id = ?`, CATEGORIES_COLUMNS, DB_TABLE)
 	var c Category
-	err := r.db.QueryRowContext(ctx, q, id).Scan(&c.ID, &c.Name, &c.CreatedAt)
+	err := r.db.QueryRowContext(ctx, q, id).Scan(&c.ID, &c.Name, &c.Slug, &c.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCategoryNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("get category: %w", err)
+	}
+
+	return &c, nil
+}
+
+func (r *Repo) GetBySlug(ctx context.Context, slugStr string) (*Category, error) {
+	q := fmt.Sprintf(`SELECT %s FROM %s WHERE slug = ?`, CATEGORIES_COLUMNS, DB_TABLE)
+	var c Category
+	err := r.db.QueryRowContext(ctx, q, slugStr).Scan(&c.ID, &c.Name, &c.Slug, &c.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCategoryNotFound
 	}
@@ -88,7 +112,7 @@ func (r *Repo) GetByIDs(ctx context.Context, ids []int64) (map[int64]Category, e
 		args[i] = id
 	}
 
-	q := `SELECT id, name, created_at FROM categories WHERE id IN (` + placeholders + `)`
+	q := fmt.Sprintf(`SELECT %s FROM %s WHERE id IN (%s)`, CATEGORIES_COLUMNS, DB_TABLE, placeholders)
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get categories by ids: %w", err)
@@ -97,7 +121,7 @@ func (r *Repo) GetByIDs(ctx context.Context, ids []int64) (map[int64]Category, e
 	defer rows.Close()
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 
@@ -112,7 +136,7 @@ func (r *Repo) GetByIDs(ctx context.Context, ids []int64) (map[int64]Category, e
 }
 
 func (r *Repo) List(ctx context.Context, limit, offset int) ([]Category, error) {
-	q := fmt.Sprintf(`SELECT id, name, created_at FROM %s ORDER BY name LIMIT ? OFFSET ?`, DB_TABLE)
+	q := fmt.Sprintf(`SELECT %s FROM %s ORDER BY name LIMIT ? OFFSET ?`, CATEGORIES_COLUMNS, DB_TABLE)
 	rows, err := r.db.QueryContext(ctx, q, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", err)
@@ -122,7 +146,7 @@ func (r *Repo) List(ctx context.Context, limit, offset int) ([]Category, error) 
 	out := make([]Category, 0)
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 
@@ -150,14 +174,18 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 // Update replaces the name. Pre-checks existence for the same reason
 // as the rest of the repo layer — SQLite's RowsAffected on UPDATE counts only
 // rows that actually changed, so a no-op update on an existing row reports 0.
-func (r *Repo) Update(ctx context.Context, id int64, name string) error {
+func (r *Repo) Update(ctx context.Context, id int64, name string, slugStr string) error {
 	if _, err := r.GetByID(ctx, id); err != nil {
 		return err
 	}
 
-	q := fmt.Sprintf(`UPDATE %s SET name = ? WHERE id = ?`, DB_TABLE)
-	_, err := r.db.ExecContext(ctx, q, name, id)
+	q := fmt.Sprintf(`UPDATE %s SET name = ?, slug = ? WHERE id = ?`, DB_TABLE)
+	_, err := r.db.ExecContext(ctx, q, name, slugStr, id)
 	if err != nil {
+		if repository.IsSlugUniqueViolation(err, "categories.slug") {
+			return slug.ErrDuplicate
+		}
+
 		if repository.IsUniqueViolation(err) {
 			return ErrCategoryDuplicate
 		}
@@ -208,4 +236,13 @@ func (r *Repo) Exists(ctx context.Context, id int64) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
+// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
+//
+// The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
+// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
+func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
+	return r.slugFinder.Generate(ctx, base, excludePostID)
 }

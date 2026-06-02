@@ -432,12 +432,12 @@ func TestGetPostBySlugPublic(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	tagA, err := app.tagsRepo.Create(ctx, "go")
+	tagA, err := app.tagsRepo.Create(ctx, "go", "go")
 	if err != nil {
 		t.Fatalf("create tag: %v", err)
 	}
 
-	tagB, err := app.tagsRepo.Create(ctx, "web")
+	tagB, err := app.tagsRepo.Create(ctx, "web", "web")
 	if err != nil {
 		t.Fatalf("create tag: %v", err)
 	}
@@ -1044,6 +1044,437 @@ func TestUpdateStatusChange(t *testing.T) {
 	}
 }
 
+// categoryView decodes the shape returned by the category write endpoints.
+type categoryView struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// TestCreateCategoryAutoSlug verifies the auto-generate path: the handler runs slug.Generate(name) when the client omits `slug`.
+func TestCreateCategoryAutoSlug(t *testing.T) {
+	app, _ := buildApp(t)
+	tok := editorToken(t, app)
+	rec := doJSON(t, app.r, http.MethodPost, "/admin/categories", tok, `{"name":"Backend Engineering"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got categoryView
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if got.Slug != "backend-engineering" {
+		t.Errorf("auto slug: got %q, want backend-engineering", got.Slug)
+	}
+}
+
+// TestCreateCategoryExplicitSlug verifies a supplied slug is persisted as-is (not regenerated from the name).
+func TestCreateCategoryExplicitSlug(t *testing.T) {
+	app, _ := buildApp(t)
+	tok := editorToken(t, app)
+	rec := doJSON(t, app.r, http.MethodPost, "/admin/categories", tok, `{"name":"Engineering","slug":"eng"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got categoryView
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Slug != "eng" {
+		t.Errorf("explicit slug: got %q, want eng", got.Slug)
+	}
+}
+
+// TestCreateCategoryExplicitSlugConflict pins the explicit-collision policy:
+// a client-supplied slug that already exists is rejected with 409 slug_conflict instead of silently auto-suffixed.
+func TestCreateCategoryExplicitSlugConflict(t *testing.T) {
+	app, _ := buildApp(t)
+	tok := editorToken(t, app)
+	rec := doJSON(t, app.r, http.MethodPost, "/admin/categories", tok, `{"name":"Engineering","slug":"eng"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, app.r, http.MethodPost, "/admin/categories", tok,
+		`{"name":"Engineering Reloaded","slug":"eng"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("conflict: got %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Error != "slug_conflict" {
+		t.Errorf("error code: got %q, want slug_conflict", env.Error)
+	}
+}
+
+// TestCreateCategoryBogusSlug verifies the slug validator rejects non kebab-case ASCII with the 400 validation envelope.
+func TestCreateCategoryBogusSlug(t *testing.T) {
+	app, _ := buildApp(t)
+	tok := editorToken(t, app)
+	rec := doJSON(t, app.r, http.MethodPost, "/admin/categories", tok, `{"name":"Engineering","slug":"Foo Bar"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bogus slug: got %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestUpdateCategoryPreservesSlugWhenOmitted verifies the PUT-omits-slug
+func TestUpdateCategoryPreservesSlugWhenOmitted(t *testing.T) {
+	app, _ := buildApp(t)
+	tok := editorToken(t, app)
+	rec := doJSON(t, app.r, http.MethodPost, "/admin/categories", tok, `{"name":"Engineering","slug":"eng"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created categoryView
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	updatePath := fmt.Sprintf("/admin/categories/%d", created.ID)
+	rec = doJSON(t, app.r, http.MethodPut, updatePath, tok, `{"name":"Backend Engineering"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var updated categoryView
+	_ = json.Unmarshal(rec.Body.Bytes(), &updated)
+	if updated.Slug != "eng" {
+		t.Errorf("slug after rename: got %q, want eng (preserved)", updated.Slug)
+	}
+
+	if updated.Name != "Backend Engineering" {
+		t.Errorf("name: got %q, want Backend Engineering", updated.Name)
+	}
+}
+
+// postsByCategoryResp / postsByTagResp mirror the wire shapes of PostsByCategoryResponse / PostsByTagResponse.
+// Inlined here so the tests decode against the JSON contract, not the Go struct (catches accidental schema drift).
+type postsByCategoryResp struct {
+	Category struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	} `json:"category"`
+	Items   []postsrepo.Post `json:"items"`
+	Page    int              `json:"page"`
+	PerPage int              `json:"per_page"`
+	Total   int              `json:"total"`
+}
+
+type postsByTagResp struct {
+	Tag struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	} `json:"tag"`
+	Items   []postsrepo.Post `json:"items"`
+	Page    int              `json:"page"`
+	PerPage int              `json:"per_page"`
+	Total   int              `json:"total"`
+}
+
+// TestListPostsByCategorySlugPublic verifies the public endpoint only returns
+// `status='published'` posts and 404s on an unknown slug.
+func TestListPostsByCategorySlugPublic(t *testing.T) {
+	app, raw := buildApp(t)
+	ctx := t.Context()
+	authorID, err := app.usersRepo.Create(ctx, "writer", "writer@example.com", "h", 3)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	catID, err := app.categoriesRepo.Create(ctx, "Engineering", "engineering")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	mustPost := func(title, slug, status string) {
+		t.Helper()
+		if _, err := raw.ExecContext(ctx,
+			`INSERT INTO posts (author_id, category_id, title, markdown_content, html_content, slug, status) VALUES (?, ?, ?, '', '', ?, ?)`,
+			authorID, catID, title, slug, status,
+		); err != nil {
+			t.Fatalf("insert post: %v", err)
+		}
+	}
+	mustPost("p-published", "p-published", "published")
+	mustPost("p-draft", "p-draft", "draft")
+	mustPost("p-archived", "p-archived", "archived")
+	rec := doJSON(t, app.r, http.MethodGet, "/categories/engineering", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got postsByCategoryResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+
+	if got.Category.ID != catID || got.Category.Slug != "engineering" {
+		t.Errorf("category metadata: got %+v", got.Category)
+	}
+
+	if got.Total != 1 || len(got.Items) != 1 || got.Items[0].Slug != "p-published" {
+		t.Errorf("items: total=%d items=%d, want 1 published only; body=%s", got.Total, len(got.Items), rec.Body.String())
+	}
+
+	// Unknown slug → 404.
+	rec = doJSON(t, app.r, http.MethodGet, "/categories/no-such-slug", "", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown slug: got %d, want 404", rec.Code)
+	}
+}
+
+// TestListPostsByTagSlugPublic verifies the tag pivot returns only published posts attached to the tag and 404s on miss.
+func TestListPostsByTagSlugPublic(t *testing.T) {
+	app, raw := buildApp(t)
+	ctx := t.Context()
+	authorID, err := app.usersRepo.Create(ctx, "writer", "writer@example.com", "h", 3)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	tagID, err := app.tagsRepo.Create(ctx, "Go", "go")
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	// Different tag — its posts must not leak into the /tags/go response.
+	otherTagID, _ := app.tagsRepo.Create(ctx, "Web", "web")
+	mustPostWithTags := func(title, slug, status string, tagIDs []int64) int64 {
+		t.Helper()
+		res, err := raw.ExecContext(ctx,
+			`INSERT INTO posts (author_id, category_id, title, markdown_content, html_content, slug, status) VALUES (?, 1, ?, '', '', ?, ?)`,
+			authorID, title, slug, status,
+		)
+		if err != nil {
+			t.Fatalf("insert post: %v", err)
+		}
+
+		id, _ := res.LastInsertId()
+		if err := app.tagsRepo.ReplaceForPost(ctx, id, tagIDs); err != nil {
+			t.Fatalf("attach tags: %v", err)
+		}
+
+		return id
+	}
+	mustPostWithTags("tagged-published", "tagged-published", "published", []int64{tagID})
+	mustPostWithTags("tagged-draft", "tagged-draft", "draft", []int64{tagID})
+	mustPostWithTags("other-tag", "other-tag", "published", []int64{otherTagID})
+	mustPostWithTags("untagged", "untagged", "published", nil)
+	rec := doJSON(t, app.r, http.MethodGet, "/tags/go", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got postsByTagResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if got.Tag.ID != tagID || got.Tag.Slug != "go" {
+		t.Errorf("tag metadata: got %+v", got.Tag)
+	}
+
+	if got.Total != 1 || len(got.Items) != 1 || got.Items[0].Slug != "tagged-published" {
+		t.Errorf("items: total=%d items=%d, want 1 published-tagged only; body=%s", got.Total, len(got.Items), rec.Body.String())
+	}
+
+	rec = doJSON(t, app.r, http.MethodGet, "/tags/no-such-slug", "", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown slug: got %d, want 404", rec.Code)
+	}
+}
+
+// TestListPostsByCategorySlugAdminRoleFilter pins the Author-sees-only-own /
+// other-roles-see-all split for the admin pivot endpoint, mirroring the /admin/posts matrix.
+func TestListPostsByCategorySlugAdminRoleFilter(t *testing.T) {
+	app, raw := buildApp(t)
+	ctx := t.Context()
+	mustUser := func(username, email string, roleID int64) int64 {
+		t.Helper()
+		id, err := app.usersRepo.Create(ctx, username, email, "h", roleID)
+		if err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+		return id
+	}
+	aliceID := mustUser("alice", "alice@example.com", 3) // Author
+	bobID := mustUser("bob", "bob@example.com", 3)       // Author
+	edID := mustUser("ed", "ed@example.com", 2)          // Editor
+	catID, _ := app.categoriesRepo.Create(ctx, "Engineering", "engineering")
+	mustPost := func(authorID int64, slug, status string) {
+		t.Helper()
+		if _, err := raw.ExecContext(ctx,
+			`INSERT INTO posts (author_id, category_id, title, markdown_content, html_content, slug, status) VALUES (?, ?, ?, '', '', ?, ?)`,
+			authorID, catID, slug, slug, status,
+		); err != nil {
+			t.Fatalf("insert post: %v", err)
+		}
+	}
+	mustPost(aliceID, "alice-draft", "draft")
+	mustPost(aliceID, "alice-published", "published")
+	mustPost(bobID, "bob-draft", "draft")
+	// 3 posts total in this category. Author scope sees own (alice=2, bob=1).
+	issue := func(uid int64, role string, roleID int64) string {
+		tok, err := app.issuer.Access(auth.UserClaim{UserID: uid, Email: "x", Role: role, RoleID: roleID})
+		if err != nil {
+			t.Fatalf("issue token: %v", err)
+		}
+		return tok
+	}
+
+	tests := []struct {
+		name  string
+		token string
+		want  int
+	}{
+		{"alice (Author)", issue(aliceID, "Author", 3), 2},
+		{"bob (Author)", issue(bobID, "Author", 3), 1},
+		{"ed (Editor)", issue(edID, "Editor", 2), 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := doJSON(t, app.r, http.MethodGet, "/admin/categories/engineering", tt.token, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+
+			var got postsByCategoryResp
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+
+			if got.Total != tt.want || len(got.Items) != tt.want {
+				t.Errorf("got total=%d items=%d, want %d", got.Total, len(got.Items), tt.want)
+			}
+		})
+	}
+}
+
+// TestListPostsByCategorySlugAdminStatusFilter exercises the ?status= query parameter —
+// same semantics as /admin/posts (empty = all statuses, enum value = filter, bogus value = 400).
+func TestListPostsByCategorySlugAdminStatusFilter(t *testing.T) {
+	app, raw := buildApp(t)
+	ctx := t.Context()
+	edID, err := app.usersRepo.Create(ctx, "ed", "ed@example.com", "h", 2)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	catID, _ := app.categoriesRepo.Create(ctx, "Eng", "eng")
+	for _, st := range []string{"draft", "published", "archived"} {
+		if _, err := raw.ExecContext(ctx,
+			`INSERT INTO posts (author_id, category_id, title, markdown_content, html_content, slug, status) VALUES (?, ?, ?, '', '', ?, ?)`,
+			edID, catID, st, "post-"+st, st,
+		); err != nil {
+			t.Fatalf("insert %s: %v", st, err)
+		}
+	}
+
+	tok, err := app.issuer.Access(auth.UserClaim{UserID: edID, Email: "x", Role: "Editor", RoleID: 2})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	// No filter → all 3.
+	rec := doJSON(t, app.r, http.MethodGet, "/admin/categories/eng", tok, "")
+	var got postsByCategoryResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Total != 3 {
+		t.Errorf("no filter: total=%d, want 3", got.Total)
+	}
+
+	// status=draft → 1.
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/categories/eng?status=draft", tok, "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Total != 1 || got.Items[0].Status != "draft" {
+		t.Errorf("status=draft: total=%d items[0].status=%q, want 1/draft", got.Total, got.Items[0].Status)
+	}
+
+	// status=bogus → 400 validation envelope.
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/categories/eng?status=bogus", tok, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status=bogus: got %d, want 400", rec.Code)
+	}
+
+	// Anonymous → 401 on admin route.
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/categories/eng", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous on admin: got %d, want 401", rec.Code)
+	}
+
+	// Unknown slug → 404 (even for an authed Editor).
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/categories/no-such", tok, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown slug admin: got %d, want 404", rec.Code)
+	}
+}
+
+// TestListPostsByTagSlugAdminMatrix runs the same role + status matrix against the tag pivot.
+// Lighter than the category test because the join shape is the only difference — the role/status logic is shared.
+func TestListPostsByTagSlugAdminMatrix(t *testing.T) {
+	app, raw := buildApp(t)
+	ctx := t.Context()
+	aliceID, _ := app.usersRepo.Create(ctx, "alice", "alice@example.com", "h", 3)
+	bobID, _ := app.usersRepo.Create(ctx, "bob", "bob@example.com", "h", 3)
+	edID, _ := app.usersRepo.Create(ctx, "ed", "ed@example.com", "h", 2)
+	tagID, _ := app.tagsRepo.Create(ctx, "Go", "go")
+	mustPost := func(authorID int64, slug, status string) int64 {
+		t.Helper()
+		res, err := raw.ExecContext(ctx,
+			`INSERT INTO posts (author_id, category_id, title, markdown_content, html_content, slug, status) VALUES (?, 1, ?, '', '', ?, ?)`,
+			authorID, slug, slug, status,
+		)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+
+		id, _ := res.LastInsertId()
+		if err := app.tagsRepo.ReplaceForPost(ctx, id, []int64{tagID}); err != nil {
+			t.Fatalf("attach tag: %v", err)
+		}
+
+		return id
+	}
+	mustPost(aliceID, "alice-draft", "draft")
+	mustPost(aliceID, "alice-published", "published")
+	mustPost(bobID, "bob-draft", "draft")
+	issue := func(uid int64, role string, roleID int64) string {
+		tok, err := app.issuer.Access(auth.UserClaim{UserID: uid, Email: "x", Role: role, RoleID: roleID})
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		return tok
+	}
+
+	// Editor sees all three regardless of status.
+	rec := doJSON(t, app.r, http.MethodGet, "/admin/tags/go", issue(edID, "Editor", 2), "")
+	var got postsByTagResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+
+	if got.Tag.Slug != "go" || got.Total != 3 {
+		t.Errorf("editor: got tag=%q total=%d, want go/3", got.Tag.Slug, got.Total)
+	}
+
+	// Alice (Author) sees own 2.
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/tags/go", issue(aliceID, "Author", 3), "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Total != 2 {
+		t.Errorf("alice author own: got %d, want 2", got.Total)
+	}
+
+	// Alice + status=draft sees own 1.
+	rec = doJSON(t, app.r, http.MethodGet, "/admin/tags/go?status=draft", issue(aliceID, "Author", 3), "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Total != 1 || got.Items[0].Slug != "alice-draft" {
+		t.Errorf("alice draft: total=%d slug=%q, want 1/alice-draft", got.Total, got.Items[0].Slug)
+	}
+}
+
 func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	t.Helper()
 	type validationResp struct {
@@ -1068,4 +1499,22 @@ func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	if !reflect.DeepEqual(v.Fields, want) {
 		t.Errorf("fields mismatch:\ngot:  %#v\nwant: %#v", v.Fields, want)
 	}
+}
+
+// editorToken issues an Editor JWT through buildApp's issuer for category / tag write tests.
+// The Editor role is enough to satisfy RequireEditorOrAdmin on POST /admin/categories.
+func editorToken(t *testing.T, app *appDeps) string {
+	t.Helper()
+	ctx := t.Context()
+	id, err := app.usersRepo.Create(ctx, "ed", "ed@example.com", "h", 2)
+	if err != nil {
+		t.Fatalf("seed editor: %v", err)
+	}
+
+	tok, err := app.issuer.Access(auth.UserClaim{UserID: id, Email: "ed@example.com", Role: "Editor", RoleID: 2})
+	if err != nil {
+		t.Fatalf("issue editor token: %v", err)
+	}
+
+	return tok
 }

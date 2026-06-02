@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 	"github.com/vpramatarov/micro-blog/internal/testutil"
 )
 
@@ -24,7 +25,7 @@ func TestCreateAndGetCategory(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	id, err := r.Create(ctx, "Engineering")
+	id, err := r.Create(ctx, "Engineering", "engineering")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -48,11 +49,11 @@ func TestCreateCategoryDuplicate(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	if _, err := r.Create(ctx, "Design"); err != nil {
+	if _, err := r.Create(ctx, "Design", "design"); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 
-	_, err := r.Create(ctx, "Design")
+	_, err := r.Create(ctx, "Design", "design-2")
 	if !errors.Is(err, categories.ErrCategoryDuplicate) {
 		t.Errorf("got %v, want ErrCategoryDuplicate", err)
 	}
@@ -71,8 +72,8 @@ func TestUpdateCategory(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	id, _ := r.Create(ctx, "old name")
-	if err := r.Update(ctx, id, "new name"); err != nil {
+	id, _ := r.Create(ctx, "old name", "old-name")
+	if err := r.Update(ctx, id, "new name", "new-name"); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
@@ -85,7 +86,7 @@ func TestUpdateCategory(t *testing.T) {
 func TestUpdateCategoryNotFound(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	r := categories.New(db)
-	err := r.Update(t.Context(), 999_999, "x")
+	err := r.Update(t.Context(), 999_999, "x", "x")
 	if !errors.Is(err, categories.ErrCategoryNotFound) {
 		t.Errorf("got %v, want ErrCategoryNotFound", err)
 	}
@@ -96,9 +97,9 @@ func TestUpdateCategoryDuplicate(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	_, _ = r.Create(ctx, "alpha")
-	id2, _ := r.Create(ctx, "beta")
-	err := r.Update(ctx, id2, "alpha")
+	_, _ = r.Create(ctx, "alpha", "aplha")
+	id2, _ := r.Create(ctx, "beta", "beta")
+	err := r.Update(ctx, id2, "alpha", "beta")
 	if !errors.Is(err, categories.ErrCategoryDuplicate) {
 		t.Errorf("got %v, want ErrCategoryDuplicate", err)
 	}
@@ -109,7 +110,7 @@ func TestDeleteCategory(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	id, _ := r.Create(ctx, "doomed")
+	id, _ := r.Create(ctx, "doomed", "doomed")
 	if err := r.Delete(ctx, id); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -174,9 +175,9 @@ func TestListAndCountCategories(t *testing.T) {
 	r := categories.New(db)
 	ctx := t.Context()
 
-	// Seed: 1 row already exists ('Uncategorized') from migration 00006.
-	_, _ = r.Create(ctx, "alpha")
-	_, _ = r.Create(ctx, "beta")
+	// Seed: 1 row already exists ('Uncategorized') from migrations.
+	_, _ = r.Create(ctx, "alpha", "alpha")
+	_, _ = r.Create(ctx, "beta", "beta")
 
 	got, err := r.List(ctx, 10, 0)
 	if err != nil {
@@ -194,5 +195,69 @@ func TestListAndCountCategories(t *testing.T) {
 
 	if n != 3 {
 		t.Errorf("count: got %d, want 3", n)
+	}
+}
+
+func TestGetCategoryBySlug(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := categories.New(db)
+	ctx := t.Context()
+	id, _ := r.Create(ctx, "Engineering", "engineering")
+	got, err := r.GetBySlug(ctx, "engineering")
+	if err != nil {
+		t.Fatalf("get by slug: %v", err)
+	}
+
+	if got.ID != id || got.Name != "Engineering" || got.Slug != "engineering" {
+		t.Errorf("got %+v", got)
+	}
+
+	if _, err := r.GetBySlug(ctx, "no-such-slug"); !errors.Is(err, categories.ErrCategoryNotFound) {
+		t.Errorf("miss: got %v, want ErrCategoryNotFound", err)
+	}
+}
+
+func TestCreateCategorySlugDuplicate(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := categories.New(db)
+	ctx := t.Context()
+
+	if _, err := r.Create(ctx, "Engineering", "eng"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	// Different name, same slug — must fire the unified slug.ErrDuplicate.
+	_, err := r.Create(ctx, "Engineering Reloaded", "eng")
+	if !errors.Is(err, slug.ErrDuplicate) {
+		t.Errorf("got %v, want slug.ErrDuplicate", err)
+	}
+}
+
+func TestFindAvailableSlugCategory(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := categories.New(db)
+	ctx := t.Context()
+	// Base is free → returned as-is.
+	got, err := r.GenerateSlug(ctx, "fresh", 0)
+	if err != nil || got != "fresh" {
+		t.Errorf("free base: got %q (%v), want fresh", got, err)
+	}
+
+	// Reserve the base; expect '-2'. Reserve '-2'; expect '-3'.
+	if _, err := r.Create(ctx, "Eng", "eng"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, _ = r.GenerateSlug(ctx, "eng", 0)
+	if got != "eng-2" {
+		t.Errorf("first collision: got %q, want eng-2", got)
+	}
+
+	if _, err := r.Create(ctx, "Eng Two", "eng-2"); err != nil {
+		t.Fatalf("seed -2: %v", err)
+	}
+
+	got, _ = r.GenerateSlug(ctx, "eng", 0)
+	if got != "eng-3" {
+		t.Errorf("second collision: got %q, want eng-3", got)
 	}
 }

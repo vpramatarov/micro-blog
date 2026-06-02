@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository/tags"
+	"github.com/vpramatarov/micro-blog/internal/slug"
 	"github.com/vpramatarov/micro-blog/internal/testutil"
 )
 
@@ -26,7 +27,7 @@ func TestCreateAndGetTag(t *testing.T) {
 	r := tags.New(db)
 	ctx := t.Context()
 
-	id, err := r.Create(ctx, "go")
+	id, err := r.Create(ctx, "go", "go")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -46,11 +47,11 @@ func TestCreateTagDuplicate(t *testing.T) {
 	r := tags.New(db)
 	ctx := t.Context()
 
-	if _, err := r.Create(ctx, "go"); err != nil {
+	if _, err := r.Create(ctx, "go", "go"); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 
-	_, err := r.Create(ctx, "go")
+	_, err := r.Create(ctx, "go", "go-2")
 	if !errors.Is(err, tags.ErrTagDuplicate) {
 		t.Errorf("got %v, want ErrTagDuplicate", err)
 	}
@@ -61,11 +62,30 @@ func TestUpdateTagDuplicate(t *testing.T) {
 	r := tags.New(db)
 	ctx := t.Context()
 
-	_, _ = r.Create(ctx, "alpha")
-	id, _ := r.Create(ctx, "beta")
-	err := r.Update(ctx, id, "alpha")
+	_, _ = r.Create(ctx, "alpha", "alpha")
+	id, _ := r.Create(ctx, "beta", "beta")
+	err := r.Update(ctx, id, "alpha", "alpha")
 	if !errors.Is(err, tags.ErrTagDuplicate) {
 		t.Errorf("got %v, want ErrTagDuplicate", err)
+	}
+}
+
+func TestGetTagBySlug(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := tags.New(db)
+	ctx := t.Context()
+	id, _ := r.Create(ctx, "Go", "go")
+	got, err := r.GetBySlug(ctx, "go")
+	if err != nil {
+		t.Fatalf("get by slug: %v", err)
+	}
+
+	if got.ID != id || got.Name != "Go" || got.Slug != "go" {
+		t.Errorf("got %+v", got)
+	}
+
+	if _, err := r.GetBySlug(ctx, "missing"); !errors.Is(err, tags.ErrTagNotFound) {
+		t.Errorf("miss: got %v, want ErrTagNotFound", err)
 	}
 }
 
@@ -85,7 +105,7 @@ func TestDeleteTagAlsoCascadesPostTags(t *testing.T) {
 		t.Fatalf("post: %v", err)
 	}
 
-	tagID, err := r.Create(ctx, "to-delete")
+	tagID, err := r.Create(ctx, "to-delete", "to-delete")
 	if err != nil {
 		t.Fatalf("tag: %v", err)
 	}
@@ -116,8 +136,8 @@ func TestMissingTagIDs(t *testing.T) {
 	r := tags.New(db)
 	ctx := t.Context()
 
-	a, _ := r.Create(ctx, "a")
-	b, _ := r.Create(ctx, "b")
+	a, _ := r.Create(ctx, "a", "tag-a")
+	b, _ := r.Create(ctx, "b", "tag-b")
 
 	missing, err := r.MissingIDs(ctx, []int64{a, b, 999_999})
 	if err != nil {
@@ -158,9 +178,9 @@ func TestReplaceTagsForPost(t *testing.T) {
 		t.Fatalf("post: %v", err)
 	}
 
-	a, _ := r.Create(ctx, "a")
-	b, _ := r.Create(ctx, "b")
-	c, _ := r.Create(ctx, "c")
+	a, _ := r.Create(ctx, "a", "tag-a")
+	b, _ := r.Create(ctx, "b", "tag-b")
+	c, _ := r.Create(ctx, "c", "tag-c")
 
 	// Initial set.
 	if err := r.ReplaceForPost(ctx, 1, []int64{a, b}); err != nil {
@@ -209,8 +229,8 @@ func TestListTagsForPosts(t *testing.T) {
 		 (3, 1, 't3', 'mmmmmmmmmm', '<p>m</p>', 'list-tags-slug-3')`); err != nil {
 		t.Fatalf("posts: %v", err)
 	}
-	a, _ := r.Create(ctx, "a")
-	b, _ := r.Create(ctx, "b")
+	a, _ := r.Create(ctx, "a", "tag-a")
+	b, _ := r.Create(ctx, "b", "tag-b")
 	_ = r.ReplaceForPost(ctx, 1, []int64{a, b})
 	_ = r.ReplaceForPost(ctx, 2, []int64{a})
 	// post 3 stays empty
@@ -230,6 +250,39 @@ func TestListTagsForPosts(t *testing.T) {
 
 	if len(got[3]) != 0 {
 		t.Errorf("post 3: got %v, want empty", got[3])
+	}
+}
+
+func TestCreateTagSlugDuplicate(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := tags.New(db)
+	ctx := t.Context()
+	if _, err := r.Create(ctx, "Go", "go"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+
+	_, err := r.Create(ctx, "Go Reloaded", "go")
+	if !errors.Is(err, slug.ErrDuplicate) {
+		t.Errorf("got %v, want slug.ErrDuplicate", err)
+	}
+}
+
+func TestFindAvailableSlugTag(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	r := tags.New(db)
+	ctx := t.Context()
+	got, err := r.GenerateSlug(ctx, "fresh", 0)
+	if err != nil || got != "fresh" {
+		t.Errorf("free base: got %q (%v), want fresh", got, err)
+	}
+
+	if _, err := r.Create(ctx, "Go", "go"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, _ = r.GenerateSlug(ctx, "go", 0)
+	if got != "go-2" {
+		t.Errorf("first collision: got %q, want go-2", got)
 	}
 }
 

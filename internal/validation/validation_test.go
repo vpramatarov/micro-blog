@@ -1,6 +1,7 @@
 package validation_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -168,6 +169,25 @@ func TestURL(t *testing.T) {
 			got := validation.URL(c.in)
 			if got != c.want {
 				t.Errorf("URL(%q): got %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSlug(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", "is required"},
+		{"  ", "is required"},
+		{strings.Repeat("a", (validation.SlugMaxLen + 1)), fmt.Sprintf("must be at most %d characters", validation.SlugMaxLen)},
+		{"h3ll0@w0rld", "may only contain lowercase letters, digits, and hyphens"},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got := validation.Slug(c.in)
+			if got != c.want {
+				t.Errorf("Slug(%q): got %q, want %q", c.in, got, c.want)
 			}
 		})
 	}

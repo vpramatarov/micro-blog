@@ -153,7 +153,9 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		"GET /posts/{slug}",
 		"GET /p/{code}",
 		"GET /categories",
+		"GET /categories/{slug}",
 		"GET /tags",
+		"GET /tags/{slug}",
 		"GET /s/{code}",
 		"GET /openapi.yaml",
 		"GET /openapi.json",
@@ -169,6 +171,8 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		"PUT /api/me",
 		"GET /api/shortlinks",
 		"GET /admin/posts",
+		"GET /admin/categories/{slug}",
+		"GET /admin/tags/{slug}",
 	)
 	// Plus post + shortlink writes — Authors and above. (Author and Editor
 	// used to share a tier; they diverge here because category/tag writes are Editor-and-above only.)
