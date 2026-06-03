@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>micro-blog</title>
+    <!--
+      Placeholder shipped so the `web` Go package compiles via //go:embed before
+      the frontend has been built. Running `npm run build` in web/ (or the Docker
+      production web stage) overwrites this file with the real Vite output.
+
+      Self-contained on purpose: no JS and no external assets, so it renders under
+      the strict index CSP set by internal/api/handlers/spa (default-src 'self').
+    -->
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        line-height: 1.5;
+        color: #1a1a1a;
+        max-width: 48rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+      }
+      a { color: #2563eb; }
+      code { background: #f3f3f3; padding: 0.1rem 0.3rem; border-radius: 0.25rem; }
+      h2 { margin-top: 1.75rem; }
+      .note { color: #666; font-size: 0.9rem; border-top: 1px solid #e2e2e2; padding-top: 1rem; margin-top: 2rem; }
+    </style>
+  </head>
+  <body>
+    <h1>micro-blog</h1>
+    <p>Markdown micro-blog API with a built-in URL shortener. Public endpoints:</p>
+
+    <h2>Explore</h2>
+    <ul>
+      <li><a href="/posts">/posts</a> — published posts (JSON)</li>
+      <li><a href="/categories">/categories</a> — categories (JSON)</li>
+      <li><a href="/tags">/tags</a> — tags (JSON)</li>
+      <li><a href="/docs">/docs</a> — Swagger UI, interactive API docs</li>
+      <li><a href="/openapi.json">/openapi.json</a> — OpenAPI spec (JSON)</li>
+      <li><a href="/openapi.yaml">/openapi.yaml</a> — OpenAPI spec (YAML)</li>
+    </ul>
+
+    <h2>Parameterized</h2>
+    <ul>
+      <li><code>GET /posts/{slug}</code> — read one post by slug</li>
+      <li><code>GET /p/{code}</code> — read one post by hashid</li>
+      <li><code>GET /categories/{slug}</code> — posts in a category</li>
+      <li><code>GET /tags/{slug}</code> — posts with a tag</li>
+      <li><code>GET /s/{code}</code> — resolve a short link</li>
+    </ul>
+
+    <p class="note">
+      This is the embedded fallback page. For the hot-reloading dev UI, run the dev
+      stack (<code>docker compose up</code>) and open
+      <a href="http://localhost:5173">http://localhost:5173</a>. The full React app is
+      served here once the production image is built (<code>npm run build</code> in
+      <code>web/</code>, or <code>docker compose -f docker-compose.yml up --build</code>).
+    </p>
+  </body>
+</html>

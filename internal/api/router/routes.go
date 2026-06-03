@@ -1,6 +1,7 @@
 package router
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -10,6 +11,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
+	uiHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/ui"
 	uploadsh "github.com/vpramatarov/micro-blog/internal/api/handlers/uploads"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
@@ -28,6 +30,10 @@ type Services struct {
 	Tags        *tags.Service
 	Docs        *docs.Service
 	UploadsRoot string
+	// SPA is the embedded React build (rooted at the dist directory).
+	// When non-nil the router serves index.html at "/" and uses an SPA-aware NotFound handler for client-side routes + static assets.
+	// Nil (the test default) leaves "/" as the JSON Home handler and chi's default 404, so the openapi drift test is unaffected.
+	UI fs.FS
 }
 
 // Middlewares bundles the route-scoped middleware the router needs to mount on
@@ -107,7 +113,13 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	}
 
 	// Routes
-	r.Get("/", home)
+	// Home is the welcome page. When the UI is embedded it owns "/" (serving index.html);
+	// otherwise (tests, pure-API builds) the inlined JSON handler keeps returning `{}`.
+	if srvc.UI != nil {
+		r.Get("/", uiHandler.Index(srvc.UI))
+	} else {
+		r.Get("/", home)
+	}
 
 	// Public post reads — no auth. Read-by-id is intentionally absent here;
 	// only the hashid-encoded `{code}` route exists publicly.
@@ -237,6 +249,13 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Delete("/users/{id}", srvc.Users.Delete)
 		})
 	})
+
+	// UI fallback. Registered as chi's NotFound handler (NOT a "/*" route), so
+	// it serves client-side routes + static assets without adding a route that chi.Walk would surface to the openapi drift test.
+	// API namespaces still get a JSON 404 from inside the handler.
+	if srvc.UI != nil {
+		r.NotFound(uiHandler.Handler(srvc.UI))
+	}
 
 	return r
 }

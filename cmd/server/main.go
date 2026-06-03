@@ -44,12 +44,9 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/migrate"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	"github.com/vpramatarov/micro-blog/internal/uploads"
+	"github.com/vpramatarov/micro-blog/web"
 	_ "modernc.org/sqlite"
 )
-
-// uploadsDir is where post featured images and their variants live on disk.
-// Relative to the server's CWD; the same value is passed to the static-file handler so /uploads/* serves what the storage layer wrote.
-const uploadsDir string = "./uploads"
 
 func main() {
 	// cancel resouces
@@ -91,17 +88,20 @@ func main() {
 	categoriesRepo := categoriesRepository.New(db)
 	tagsRepo := tagRepository.New(db)
 	jobsRepo := jobs.New(db)
-
-	storage := uploads.New(uploadsDir)
-
+	storage := uploads.New(cfg.UploadsDir)
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
 		Issuer:   cfg.JWTIssuer,
 		Audience: cfg.JWTAudience,
 	})
-
 	encoder, err := shortcode.New()
 	if err != nil {
 		log.Fatalf("init shortcode encoder: %v", err)
+	}
+
+	// Embedded React build (dist). Fatal on error — a server binary always ships the UI; a broken embed is a build-time mistake.
+	uiFS, err := web.Dist()
+	if err != nil {
+		log.Fatalf("load embedded frontend: %v", err)
 	}
 
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
@@ -149,6 +149,7 @@ func main() {
 			Categories: categorySrvc,
 			Tags:       tagSrvc,
 			Docs:       docsSrvc,
+			UI:         uiFS,
 		},
 		router.Middlewares{
 			Auth:                 authMiddleware,

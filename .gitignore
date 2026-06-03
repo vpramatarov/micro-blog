@@ -34,6 +34,18 @@ vendor/
 .env.*
 !.env.example
 
+# air live-reload build output (dev container)
+tmp/
+
+# --- Frontend (web/) ---
+web/node_modules/
+# Track only the committed placeholder so the `web` Go package compiles via
+# //go:embed before the first build; ignore real build output.
+web/dist/*
+!web/dist/index.html
+web/*.local
+web/.vite/
+
 # --- Markdown in root: keep README.md only ---
 # Ignore every *.md in the repo root, then un-ignore README.md.
 /*.md

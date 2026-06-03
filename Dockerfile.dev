@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# Development image: live-reload via air. Source is bind-mounted by
+# docker-compose.override.yml, so nothing is COPYed in — the container compiles
+# whatever is on the host and rebuilds on save.
+FROM golang:1.26-alpine
+
+# git is handy for `go` module operations; air is the file-watcher/rebuilder.
+RUN apk add --no-cache git && \
+    go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+# Prime the module cache so the first `air` build isn't a cold download. These
+# get shadowed by the bind mount at runtime but warm the layer cache at build.
+COPY go.mod go.sum ./
+RUN go mod download
+
+ENV PORT=8080 \
+    DB_STRING=/data/vault.db \
+    UPLOADS_DIR=/data/uploads \
+    GO_ENV=dev
+
+EXPOSE 8080
+
+CMD ["air", "-c", ".air.toml"]

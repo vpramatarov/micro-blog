@@ -1,0 +1,43 @@
+# Keep secrets, local state, and VCS out of the build context / image layers.
+# NOTE: do NOT ignore api/ (embedded OpenAPI) or cmd/migrate/migrations/*.sql
+# (embedded migrations) — go:embed needs them in the build context.
+
+.git
+.gitignore
+
+# Secrets & env (injected at runtime via compose, never baked in).
+# .env.example is the tracked template and is intentionally NOT ignored.
+.env
+.env.*
+!.env.example
+
+# SQLite databases + WAL sidecars (runtime state, lives on a volume).
+*.db
+*.db-shm
+*.db-wal
+vault.db*
+vault_test.db*
+
+# Uploaded images (runtime state, lives on a volume).
+/uploads
+
+# Build / test artifacts.
+tmp/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+*.prof
+
+# Editor / OS / future frontend.
+.idea/
+.vscode/
+node_modules/
+dist/
+build/
+
+# Docs & planning (not needed for the build).
+*.md

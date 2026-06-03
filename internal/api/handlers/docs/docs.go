@@ -88,8 +88,10 @@ const docsHTML = `<!DOCTYPE html>
       return raw.replace(/^\s*Bearer\s+/i, '');
     }
 
+    const specBase = window.location.origin + "/openapi.json";
+
     const ui = SwaggerUIBundle({
-      url: "/openapi.json",
+      url: specBase,
       dom_id: "#ui",
       deepLinking: true,
       persistAuthorization: true,
@@ -119,7 +121,7 @@ const docsHTML = `<!DOCTYPE html>
         const a = authSlice.get('authorized');
         if (a !== prev) {
           prev = a;
-          ui.specActions.download('/openapi.json?ts=' + Date.now());
+          ui.specActions.download(specBase + '?ts=' + Date.now());
         }
       } catch (_) {}
     });
@@ -182,7 +184,7 @@ func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 			"style-src https://unpkg.com 'unsafe-inline'; "+
 			"script-src https://unpkg.com 'unsafe-inline'; "+
 			"img-src 'self' data:; "+
-			"connect-src 'self'; "+
+			"connect-src 'self' https://unpkg.com; "+
 			"frame-ancestors 'none'")
 	_, _ = w.Write([]byte(docsHTML))
 }

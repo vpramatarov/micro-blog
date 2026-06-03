@@ -1,0 +1,30 @@
+# Production baseline. A single `api` service: the Go binary serves the JSON
+# API, the /uploads/* static files, and (next plan) the React SPA from the same
+# origin — so there is no separate frontend service.
+#
+# Secrets come from a host .env (see .env.example); they are NEVER baked into
+# the image. The `environment:` block below pins container-runtime paths and
+# prod defaults and takes precedence over anything in .env.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: micro-blog:latest
+    env_file:
+      - .env                # supplies JWT_SECRET (+ any user overrides)
+    environment:
+      PORT: "8080"
+      DB_STRING: /data/vault.db
+      UPLOADS_DIR: /data/uploads
+      GO_ENV: prod
+      COOKIE_SECURE: "true" # requires HTTPS in front (see .env.example notes)
+    volumes:
+      - appdata:/data       # SQLite file + uploaded images persist here
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  appdata:

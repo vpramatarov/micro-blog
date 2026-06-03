@@ -9,7 +9,7 @@ info:
     centralized permission/scope matrix.
 
 servers:
-  - url: http://localhost:****
+  - url: /
     description: Local dev (PORT from .env)
 
 tags:

@@ -1,0 +1,6 @@
+# Keep the web build context small. node_modules is installed inside the image;
+# dist is produced by the build. Neither should be sent from the host.
+node_modules
+dist
+.vite
+*.local

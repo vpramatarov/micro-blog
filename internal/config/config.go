@@ -24,7 +24,10 @@ type Config struct {
 	JWTIssuer           string
 	JWTAudience         string
 	CookieSecure        bool
-	Env                 string // Env is value from GO_ENV "dev" or "prod" (default to "prod" when GO_ENV is unset).
+	// UploadsDir is where post featured images and their variants live on disk (UPLOADS_DIR, default "./uploads").
+	// Relative to the server CWD unless an absolute path is given; in containers it's pointed at a mounted volume.
+	UploadsDir string
+	Env        string // Env is value from GO_ENV "dev" or "prod" (default to "prod" when GO_ENV is unset).
 }
 
 func Load() *Config {
@@ -36,7 +39,7 @@ func Load() *Config {
 		log.Println("Test mode detected! Loading .env.test...")
 		_ = godotenv.Load(".env.test", "../.env.test", "../../.env.test", "../../../.env.test")
 	} else {
-		if err := godotenv.Load(); err != nil {
+		if err := godotenv.Load(".env.local", ".env"); err != nil {
 			log.Println("No .env file found, using system environment variables")
 		}
 	}
@@ -46,16 +49,22 @@ func Load() *Config {
 		log.Println("WARNING: JWT_SECRET is empty; tokens will be signed with an insecure default")
 	}
 
+	adminSeedPassword := getEnv("ADMIN_SEED_PASSWORD", "")
+	if adminSeedPassword == "" {
+		log.Println("WARNING: ADMIN_SEED_PASSWORD is empty!")
+	}
+
 	return &Config{
 		Port:                getEnvAsInt("PORT", 8080),
 		DB_STRING:           getEnv("DB_STRING", ""),
-		ADMIN_SEED_PASSWORD: getEnv("ADMIN_SEED_PASSWORD", "changeme"),
+		ADMIN_SEED_PASSWORD: adminSeedPassword,
 		JWTSecret:           secret,
 		JWTAccessTTL:        getEnvAsDuration("JWT_ACCESS_TTL", 15*time.Minute),
 		JWTRefreshTTL:       getEnvAsDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		JWTIssuer:           getEnv("JWT_ISSUER", "micro-blog"),
 		JWTAudience:         getEnv("JWT_AUDIENCE", "micro-blog-api"),
 		CookieSecure:        getEnvAsBool("COOKIE_SECURE", true),
+		UploadsDir:          getEnv("UPLOADS_DIR", "./uploads"),
 		Env:                 goEnv,
 	}
 }

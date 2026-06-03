@@ -1,0 +1,44 @@
+# Dev overrides — auto-merged by `docker compose` on top of docker-compose.yml.
+# Swaps the prod image for the air-based live-reload image, bind-mounts the
+# source, and relaxes the cookie flag for plain-HTTP local use.
+#
+# Run with just `docker compose up` (this file is picked up automatically).
+
+services:
+  api:
+    build:
+      dockerfile: Dockerfile.dev
+    environment:
+      GO_ENV: dev
+      COOKIE_SECURE: "false"   # no local TLS terminator
+    volumes:
+      - .:/app                 # live source; air rebuilds on save
+      - appdata_dev:/data      # separate dev data so it never touches prod
+    # Compose concatenates `ports`, so the dev container is reachable on BOTH
+    # 8080 (from the base) and 8090 (the long-standing local habit) → :8080.
+    ports:
+      - "8090:8080"
+    restart: "no"
+
+  # Vite dev server with hot reload. Open http://localhost:5173 — it serves the
+  # SPA + HMR and proxies API calls to the `api` service over the Compose
+  # network. The host ./web is bind-mounted for live edits; node_modules is kept
+  # inside the container so the mount doesn't shadow the Linux-built deps.
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8080   # Compose service name + in-network port
+      VITE_USE_POLLING: "true"                 # detect host edits on Windows/WSL2
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: "no"
+
+volumes:
+  appdata_dev:
