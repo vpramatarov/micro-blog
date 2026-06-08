@@ -26,6 +26,9 @@ func main() {
 	command := os.Args[1]
 
 	cfg := config.Load()
+	// Use cfg.DSN() so the CLI runs with the same WAL/foreign_keys/busy_timeout
+	// pragmas as cmd/server — a destructive `down` now triggers ON DELETE
+	// CASCADE, and BUSY_TIMEOUT avoids SQLITE_BUSY when the server is running.
 	db, err := sql.Open("sqlite", cfg.DatabaseDSN())
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
@@ -36,8 +39,12 @@ func main() {
 		log.Fatalf("goose setup: %v", err)
 	}
 
-	if command == "seed" {
+	switch command {
+	case "seed":
 		runSeedData(db, cfg.ADMIN_SEED_PASSWORD)
+		return
+	case "seed-demo":
+		runSeedDemo(db, cfg, os.Args[2:])
 		return
 	}
 
