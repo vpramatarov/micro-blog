@@ -29,10 +29,10 @@ go run ./cmd/migrate seed
 go run ./cmd/server
 ```
 
-Then in a browser:
-- `http://localhost:8080/docs` — Swagger UI, click *Authorize* and paste a bearer token to exercise endpoints.
-- `http://localhost:8080/openapi.yaml` — raw spec.
-- `http://localhost:8080/openapi.json` — JSON spec.
+Then in a browser (`{PORT}` is the value of `PORT` defined in `.env` or `.env.*` file):
+- `http://localhost:{PORT}/docs` — Swagger UI, click *Authorize* and paste a bearer token to exercise endpoints.
+- `http://localhost:{PORT}/openapi.yaml` — raw spec.
+- `http://localhost:{PORT}/openapi.json` — JSON spec.
 
 > The steps above run the **API only**. For the React frontend and the
 > containerized workflows, see **[Setup & running](#setup--running)** below.
@@ -88,7 +88,7 @@ go mod tidy
 ships a "frontend not built yet" placeholder there):
 
 ```powershell
-go run ./cmd/server      # auto-migrates, then listens on :8080 (PORT)
+go run ./cmd/server      # auto-migrates, then listens on :{PORT} (PORT)
 ```
 
 **With the React frontend — two options:**
@@ -99,7 +99,7 @@ cd web
 npm install
 npm run build            # outputs web/dist, which the server embeds via //go:embed
 cd ..
-go run ./cmd/server      # full app at http://localhost:8080
+go run ./cmd/server      # full app at http://localhost:{PORT}
 ```
 `go run`/`go build` embed `web/dist` **at compile time** — after changing the
 frontend, re-run `npm run build` and restart the server. For an iterative
@@ -108,7 +108,7 @@ frontend loop use Option 2.
 *Option 2 — Vite dev server with hot reload (two terminals):*
 ```powershell
 # Terminal 1 — the API
-go run ./cmd/server                 # http://localhost:8080
+go run ./cmd/server                 # http://localhost:{PORT}
 
 # Terminal 2 — the Vite dev server
 cd web
@@ -116,7 +116,7 @@ npm install
 npm run dev                          # http://localhost:5173  ← open this
 ```
 Vite serves the SPA with HMR and proxies API calls (`/auth`, `/api`, `/admin`,
-`/posts`, …) to the Go server on `:8080`, so the browser sees a single origin and
+`/posts`, …) to the Go server on `:{PORT}`, so the browser sees a single origin and
 the refresh cookie works (with `COOKIE_SECURE=false`).
 
 ### Run with Docker
@@ -132,18 +132,18 @@ copy .env.example .env               # set JWT_SECRET (+ ADMIN_SEED_PASSWORD)
 docker compose up --build
 ```
 This starts two services:
-- **`api`** — the Go server with live reload (`air`) at **http://localhost:8080**.
+- **`api`** — the Go server with live reload (`air`) at **http://localhost:{PORT}**.
 - **`web`** — the Vite dev server with HMR at **http://localhost:5173** ← *open this*.
 
 Edit anything under `web/` and the browser hot-updates; edit Go source and `air`
 rebuilds the API. The `web` container proxies API calls to the `api` service over
-the Compose network (`http://api:8080`).
+the Compose network (`http://api:{PORT}`).
 
 **Production-like (single container, embedded SPA):**
 ```powershell
 docker compose -f docker-compose.yml build     # Node builds web/dist, Go embeds it
 docker compose -f docker-compose.yml up -d
-# API + SPA served together at http://localhost:8080
+# API + SPA served together at http://localhost:{PORT}
 ```
 The base stack sets `GO_ENV=prod` and `COOKIE_SECURE=true` — it expects a
 TLS-terminating proxy in front. For plain-HTTP local testing, prefer the dev
@@ -181,8 +181,8 @@ The schema is applied automatically on server start; seeding is separate.
 | URL | What |
 |---|---|
 | `http://localhost:5173` | The React app with HMR (Docker dev stack, or local `npm run dev`). |
-| `http://localhost:8080` | The API; also the full app when the SPA is built/embedded (local + Docker dev). |
-| `http://localhost:8080` | The API + embedded SPA (Docker production-like stack). |
+| `http://localhost:{PORT}` | The API; also the full app when the SPA is built/embedded (local + Docker dev). |
+| `http://localhost:{PORT}` | The API + embedded SPA (Docker production-like stack). |
 | `…/docs` | Swagger UI. `…/openapi.yaml` · `…/openapi.json` — the spec. |
 
 ---
@@ -193,7 +193,7 @@ All config is environment-driven; `.env` and `.env.test` are loaded automaticall
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PORT` | `8080` | TCP port the server listens on. |
+| `PORT` | `{PORT}` | TCP port the server listens on. |
 | `DB_STRING` | `""` | SQLite file path (e.g. `vault.db`). Empty surfaces a misleading error on first query — set it. |
 | `JWT_SECRET` | `""` | HMAC key for access tokens. **The API server refuses to start unless this is set to ≥ 32 bytes** (HS256 needs that much entropy). Generate one with e.g. `openssl rand -base64 48`. The migrate CLI does not enforce this — it only needs `DB_STRING`. |
 | `JWT_ACCESS_TTL` | `15m` | `time.ParseDuration` syntax. |
@@ -305,7 +305,7 @@ The full route map with request/response shapes is in `api/openapi.yaml` — use
 
 ### Reading it
 - **Browser**: hit `GET /docs` (Swagger UI) or `GET /openapi.yaml`.
-- **CLI consumers**: `curl http://localhost:8080/openapi.json | jq` returns the JSON-converted spec (computed once at process init).
+- **CLI consumers**: `curl http://localhost:{PORT}/openapi.json | jq` returns the JSON-converted spec (computed once at process init).
 
 ### Using endpoints from the docs page
 1. Open `/docs`.
