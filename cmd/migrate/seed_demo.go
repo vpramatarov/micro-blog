@@ -29,7 +29,7 @@ const (
 	roleSubscriber = 4
 )
 
-var postStatuses = []string{"published", "draft", "hidden"}
+var postStatuses = []string{"published", "draft", "archived"}
 
 // seedUser pairs a created user's login identity with its role for the end-of-run credential printout.
 type seedUser struct {
@@ -277,7 +277,7 @@ func weightedStatus(f *gofakeit.Faker) string {
 	case n <= 90:
 		return postStatuses[1] // draft
 	default:
-		return postStatuses[2] // hidden
+		return postStatuses[2] // archived
 	}
 }
 
