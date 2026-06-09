@@ -21,6 +21,9 @@ vault_test.db*
 # Uploaded images (runtime state, lives on a volume).
 /uploads
 
+# Dev-only host bind mount for /data (sqlite db + uploaded images)
+/.devdata/
+
 # Build / test artifacts.
 tmp/
 *.exe

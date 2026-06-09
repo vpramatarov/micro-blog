@@ -170,7 +170,7 @@ The schema is applied automatically on server start; seeding is separate.
   # Local
   go run ./cmd/migrate seed-demo -reset
   # Docker (dev stack — uses the bind-mounted source via `go run`)
-  docker compose run --rm api go run ./cmd/migrate seed-demo -reset
+  docker compose run --rm api go run ./cmd/migrate seed-demo --reset
   ```
   `-reset` wipes existing demo content (keeping the admin, RBAC rows, and the
   `Uncategorized` category) and reseeds a reproducible set; the command prints the

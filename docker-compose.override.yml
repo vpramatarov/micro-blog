@@ -13,7 +13,7 @@ services:
       COOKIE_SECURE: "false"   # no local TLS terminator
     volumes:
       - .:/app                 # live source; air rebuilds on save
-      - appdata_dev:/data      # separate dev data so it never touches prod
+      - ./devdata:/data      # bind-mount /data to the host.
     # Compose concatenates `ports`, so the dev container is reachable on BOTH
     # 8080 (from the base) and 8090 (the long-standing local habit) → :8080.
     ports:
@@ -39,6 +39,3 @@ services:
     depends_on:
       - api
     restart: "no"
-
-volumes:
-  appdata_dev:

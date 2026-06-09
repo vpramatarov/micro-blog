@@ -99,11 +99,12 @@ func (c *Config) ValidateForServer() error {
 
 // returns connection string.
 func (c *Config) DatabaseDSN() string {
-	// SQLite pragmas, all per-connection so the URI form applies them on every
-	// pooled conn: foreign_keys enforces ON DELETE CASCADE; journal_mode=WAL
-	// unblocks readers during writes; busy_timeout(5000) makes contending
-	// writers wait 5s instead of erroring with SQLITE_BUSY.
-	return "file:" + c.DB_STRING + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	journal := "WAL"
+	if c.IsDev() {
+		journal = "DELETE"
+	}
+	// SQLite pragmas, all per-connection so the URI form applies them on every pooled conn: foreign_keys enforces ON DELETE CASCADE;
+	return "file:" + c.DB_STRING + "?_pragma=foreign_keys(1)&_pragma=journal_mode(" + journal + ")&_pragma=busy_timeout(5000)"
 }
 
 // reports whether the server is running in the dev or prod environment.

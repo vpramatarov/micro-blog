@@ -8,7 +8,7 @@ tmp_dir = "tmp"
   bin = "./tmp/server"
   delay = 500
   include_ext = ["go"]
-  exclude_dir = ["tmp", "uploads", "web", "node_modules", "dist", ".git"]
+  exclude_dir = ["tmp", "uploads", "web", "node_modules", "dist", ".git", ".devdata"]
   exclude_regex = ["_test\\.go"]
   stop_on_error = true
 
