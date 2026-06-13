@@ -817,13 +817,12 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 // hydrateMany batches tags hydration across a page of posts.
 func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]PostResponse, error) {
 	items := make([]PostResponse, len(posts))
-
 	postIDs := make([]int64, len(posts))
 	for i, p := range posts {
 		postIDs[i] = p.ID
 
 		if s.Encoder != nil {
-			if code, err := s.Encoder.Encode(posts[i].ID); err != nil {
+			if code, err := s.Encoder.Encode(posts[i].ID); err == nil {
 				posts[i].Code = code
 			}
 		}
