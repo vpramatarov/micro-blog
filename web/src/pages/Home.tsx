@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { listPosts } from "../lib/api";
 import type { Post } from "../types";
+import { uploadsUrl } from "../lib/uploads";
 
 // Directly GET-able public endpoints (rendered as links).
 const PUBLIC_LINKS: { href: string; label: string }[] = [
@@ -30,7 +31,7 @@ export function Home() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const path = "./uploads/"
+  const POSTS_BASE = "/posts/";
 
   useEffect(() => {
     let cancelled = false;
@@ -78,13 +79,16 @@ export function Home() {
       {!loading && !error && posts.length === 0 && <p>No published posts yet.</p>}
       <ul>
         {posts.map((p) => (
-            <a href={p.slug}>
-                <li key={p.id}>
-                    {p.featured_image_path ? <img src={path + p.featured_image_path} alt={p.featured_image_path}/> : ''}
-                    {p.title} <small>— {p.author_name}</small>
-                  <p>{p.excerpt}</p>
-                </li>
-            </a>
+            <li key={p.id}>
+                {p.featured_image_path ? (
+                  <a href={POSTS_BASE + p.slug}>
+                    <img src={uploadsUrl(p.featured_image_path, "s")} alt={p.title} />
+                  </a>
+                ): null}
+                
+                <a href={POSTS_BASE + p.slug}>{p.title}</a> <small>— {p.author_name}</small>
+              <p>{p.excerpt}</p>
+            </li>
         ))}
       </ul>
     </section>

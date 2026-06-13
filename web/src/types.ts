@@ -31,7 +31,7 @@ export interface Post {
   author_name: string;
   status: string;
   created_at: string;
-  featured_image_path: string;
+  featured_image_path?: string;
   excerpt: string;
 }
 
