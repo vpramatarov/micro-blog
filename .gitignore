@@ -24,7 +24,8 @@ go.work.sum
 vendor/
 
 # Dev-only host bind mount for /data (sqlite db + uploaded images)
-/.devdata/
+/devdata/
+/uploads/*
 
 # --- Project-specific ---
 # Local SQLite databases (server + tests)

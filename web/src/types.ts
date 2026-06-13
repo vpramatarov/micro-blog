@@ -32,6 +32,7 @@ export interface Post {
   status: string;
   created_at: string;
   featured_image_path: string;
+  excerpt: string;
 }
 
 // Error envelope: {error, message, fields?}. `fields` is present only on

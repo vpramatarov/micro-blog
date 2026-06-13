@@ -150,6 +150,7 @@ func main() {
 			Tags:       tagSrvc,
 			Docs:       docsSrvc,
 			UI:         uiFS,
+			UploadsRoot: cfg.UploadsDir,
 		},
 		router.Middlewares{
 			Auth:                 authMiddleware,

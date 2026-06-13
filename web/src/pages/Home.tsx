@@ -30,6 +30,7 @@ export function Home() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const path = "./uploads/"
 
   useEffect(() => {
     let cancelled = false;
@@ -79,9 +80,9 @@ export function Home() {
         {posts.map((p) => (
             <a href={p.slug}>
                 <li key={p.id}>
-                    {p.featured_image_path ? <img src={p.featured_image_path} alt={p.featured_image_path}/> : ''}
+                    {p.featured_image_path ? <img src={path + p.featured_image_path} alt={p.featured_image_path}/> : ''}
                     {p.title} <small>— {p.author_name}</small>
-                  <p></p>
+                  <p>{p.excerpt}</p>
                 </li>
             </a>
         ))}
