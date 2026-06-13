@@ -142,7 +142,7 @@ components:
 
     Post:
       type: object
-      required: [id, author_id, author_name, category_id, category_name, title, slug, markdown_content, html_content, created_at, tags, status]
+      required: [id, author_id, author_name, category_id, category_name, title, slug, markdown_content, excerpt, html_content, created_at, tags, status]
       properties:
         id: { type: integer, format: int64, example: 42 }
         code:
@@ -179,6 +179,7 @@ components:
             transliteration rules in internal/slug. Unique across posts —
             collisions are resolved by appending -2, -3, …
         markdown_content: { type: string, example: "# Hello\n\nworld" }
+        excerpt: { type: string, description: "Markdown content stripped and limited to 100 characters", example: "Hello\n\nworld" }
         html_content: { type: string, example: "<h1>Hello</h1>\n<p>world</p>\n" }
         created_at: { type: string, format: date-time }
         tags:

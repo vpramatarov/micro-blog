@@ -109,3 +109,26 @@ func TestRenderEmptyInput(t *testing.T) {
 		t.Errorf("empty input: got %q, want empty", out)
 	}
 }
+
+func TestToText(t *testing.T) {
+	md := "# title\n\n" + strings.Repeat("a", 250)
+	cases := []struct {
+		name string
+		in   string
+		out  string
+	}{
+		{"heading", "# Hello", "Hello"},
+		{"link", "[example](https://example.com)", "example"},
+		{"bold_italic", "This is **bold** and *italic*.", "This is bold and italic."},
+		{"new_lines", "# body\n\nlong enough.", "body\n\nlong enough."},
+		{"text_limit", md, markdown.ToText(md)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clean := markdown.ToText(c.in)
+			if clean != c.out {
+				t.Errorf("got %s, want %s; input: %s", clean, c.out, c.in)
+			}
+		})
+	}
+}

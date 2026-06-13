@@ -38,6 +38,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/config"
 	jobsWorker "github.com/vpramatarov/micro-blog/internal/jobs"
+	"github.com/vpramatarov/micro-blog/internal/markdown"
 	"github.com/vpramatarov/micro-blog/internal/shortcode"
 	"github.com/vpramatarov/micro-blog/internal/testutil"
 	"github.com/vpramatarov/micro-blog/internal/uploads"
@@ -463,13 +464,14 @@ func TestGetPostBySlugPublic(t *testing.T) {
 	}
 
 	var got struct {
-		ID           int64            `json:"id"`
-		Slug         string           `json:"slug"`
-		AuthorID     int64            `json:"author_id"`
-		AuthorName   string           `json:"author_name"`
-		CategoryID   int64            `json:"category_id"`
-		CategoryName string           `json:"category_name"`
-		Tags         map[int64]string `json:"tags"`
+		ID              int64            `json:"id"`
+		Slug            string           `json:"slug"`
+		AuthorID        int64            `json:"author_id"`
+		AuthorName      string           `json:"author_name"`
+		CategoryID      int64            `json:"category_id"`
+		CategoryName    string           `json:"category_name"`
+		MarkdownContent string           `json:"markdown_content"`
+		Tags            map[int64]string `json:"tags"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
@@ -485,6 +487,11 @@ func TestGetPostBySlugPublic(t *testing.T) {
 
 	if got.CategoryID != 1 || got.CategoryName != "Uncategorized" {
 		t.Errorf("category: got id=%d name=%q, want id=1 name=Uncategorized", got.CategoryID, got.CategoryName)
+	}
+
+	excerpt := markdown.ToText(got.MarkdownContent)
+	if excerpt != "hi" {
+		t.Errorf("excerpt does not match: got %s, want hi", excerpt)
 	}
 
 	if len(got.Tags) != 2 {
@@ -592,6 +599,11 @@ func TestCreatePostAsAuthor(t *testing.T) {
 
 	if got.HTMLContent == got.MarkdownContent {
 		t.Errorf("html_content equals markdown_content — renderer not applied")
+	}
+
+	excerpt := markdown.ToText(got.MarkdownContent)
+	if excerpt != "hi\n\nworld" {
+		t.Errorf("excerpt renderer not applied.")
 	}
 
 	if got.Code == "" {
