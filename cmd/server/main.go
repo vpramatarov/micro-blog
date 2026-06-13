@@ -142,14 +142,14 @@ func main() {
 
 	r := router.New(
 		router.Services{
-			Auth:       authSrvc,
-			Users:      usersSrvc,
-			Posts:      postsSrvc,
-			ShortLinks: shortLinksSrvc,
-			Categories: categorySrvc,
-			Tags:       tagSrvc,
-			Docs:       docsSrvc,
-			UI:         uiFS,
+			Auth:        authSrvc,
+			Users:       usersSrvc,
+			Posts:       postsSrvc,
+			ShortLinks:  shortLinksSrvc,
+			Categories:  categorySrvc,
+			Tags:        tagSrvc,
+			Docs:        docsSrvc,
+			UI:          uiFS,
 			UploadsRoot: cfg.UploadsDir,
 		},
 		router.Middlewares{
