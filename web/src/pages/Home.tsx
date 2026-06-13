@@ -51,25 +51,25 @@ export function Home() {
   return (
     <section>
       <h1>micro-blog</h1>
-      <p>Markdown micro-blog API with a built-in URL shortener. Public endpoints:</p>
+      {/*<p>Markdown micro-blog API with a built-in URL shortener. Public endpoints:</p>*/}
 
-      <h2>Explore</h2>
-      <ul>
-        {PUBLIC_LINKS.map((l) => (
-          <li key={l.href}>
-            <a href={l.href}>{l.href}</a> — {l.label}
-          </li>
-        ))}
-      </ul>
+      {/*<h2>Explore</h2>*/}
+      {/*<ul>*/}
+      {/*  {PUBLIC_LINKS.map((l) => (*/}
+      {/*    <li key={l.href}>*/}
+      {/*      <a href={l.href}>{l.href}</a> — {l.label}*/}
+      {/*    </li>*/}
+      {/*  ))}*/}
+      {/*</ul>*/}
 
-      <h2>Parameterized</h2>
-      <ul>
-        {PUBLIC_PATTERNS.map((p) => (
-          <li key={p}>
-            <code>{p}</code>
-          </li>
-        ))}
-      </ul>
+      {/*<h2>Parameterized</h2>*/}
+      {/*<ul>*/}
+      {/*  {PUBLIC_PATTERNS.map((p) => (*/}
+      {/*    <li key={p}>*/}
+      {/*      <code>{p}</code>*/}
+      {/*    </li>*/}
+      {/*  ))}*/}
+      {/*</ul>*/}
 
       <h2>Latest posts</h2>
       {loading && <p>Loading…</p>}
@@ -77,9 +77,13 @@ export function Home() {
       {!loading && !error && posts.length === 0 && <p>No published posts yet.</p>}
       <ul>
         {posts.map((p) => (
-          <li key={p.id}>
-            {p.title} <small>— {p.author_name}</small>
-          </li>
+            <a href={p.slug}>
+                <li key={p.id}>
+                    {p.featured_image_path ? <img src={p.featured_image_path} alt={p.featured_image_path}/> : ''}
+                    {p.title} <small>— {p.author_name}</small>
+                  <p></p>
+                </li>
+            </a>
         ))}
       </ul>
     </section>
