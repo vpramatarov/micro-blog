@@ -47,7 +47,8 @@ var errImageRejected = errors.New("posts: image rejected (response already writt
 // The hydration helpers always allocate an empty map so a post with no tags serializes as `{}`, not `null`.
 type PostResponse struct {
 	postRepository.Post
-	Tags map[int64]string `json:"tags"`
+	Excerpt string           `json:"excerpt"`
+	Tags    map[int64]string `json:"tags"`
 }
 
 type postWriteRequest struct {
@@ -799,7 +800,7 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 		}
 	}
 
-	view := &PostResponse{Post: *post, Tags: make(map[int64]string)}
+	view := &PostResponse{Post: *post, Excerpt: markdown.ToText(post.MarkdownContent), Tags: make(map[int64]string)}
 	tagSlice, err := s.Tags.ListForPost(r.Context(), post.ID)
 	if err != nil {
 		s.Log.Error("hydrate tags", "err", err, "post_id", post.ID)
@@ -816,13 +817,12 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 // hydrateMany batches tags hydration across a page of posts.
 func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]PostResponse, error) {
 	items := make([]PostResponse, len(posts))
-
 	postIDs := make([]int64, len(posts))
 	for i, p := range posts {
 		postIDs[i] = p.ID
 
 		if s.Encoder != nil {
-			if code, err := s.Encoder.Encode(posts[i].ID); err != nil {
+			if code, err := s.Encoder.Encode(posts[i].ID); err == nil {
 				posts[i].Code = code
 			}
 		}
@@ -835,7 +835,7 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 	}
 
 	for i, p := range posts {
-		view := PostResponse{Post: p, Tags: make(map[int64]string)}
+		view := PostResponse{Post: p, Excerpt: markdown.ToText(p.MarkdownContent), Tags: make(map[int64]string)}
 		for _, t := range tagsByPost[p.ID] {
 			view.Tags[t.ID] = t.Name
 		}

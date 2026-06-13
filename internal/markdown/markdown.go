@@ -9,9 +9,13 @@ package markdown
 import (
 	"bytes"
 
+	stripMarkdown "github.com/writeas/go-strip-markdown"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 )
+
+// defaultExcerptLimit is the limit of characters for the excerpt. Content will be truncated to this amount of characters.
+const defaultExcerptLimit int = 100
 
 // defaultRenderer is configured once at package init. goldmark.Markdown is safe for concurrent use after configuration, so the whole server shares this instance.
 var defaultRenderer = goldmark.New(goldmark.WithExtensions(extension.GFM))
@@ -24,4 +28,18 @@ func Render(md string) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func ToText(md string) string {
+	return truncateText(stripMarkdown.Strip(md), defaultExcerptLimit)
+}
+
+// truncateText safely truncates a string to a specific number of characters (runes)
+func truncateText(text string, limit int) string {
+	runes := []rune(text) // Convert to runes for safe UTF-8 slicing
+	if len(runes) > limit {
+		return string(runes[:limit]) + "..."
+	}
+
+	return text
 }
