@@ -7,13 +7,13 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.1
+	github.com/writeas/go-strip-markdown v2.0.1+incompatible
 	golang.org/x/crypto v0.50.0
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.50.0
 )
 
 require (
-	github.com/writeas/go-strip-markdown v2.0.1+incompatible // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8 // indirect
 )
