@@ -215,13 +215,34 @@ components:
             Variants may 404 briefly after the upload until the worker has
             generated them — clients fall back to the original via `onError`.
 
-    PostWriteRequest:
+    PostCreateRequest:
       type: object
       required: [title, markdown_content, category_id]
       description: |
         JSON-encoded payload sent as the `data` form field of a multipart
-        POST/PUT to `/admin/posts` (see those operations for the multipart
-        envelope).
+        POST to `/admin/posts` (see those operations for the multipart envelope).
+      properties:
+        title: { type: string, minLength: 3, maxLength: 200, example: "Hello world" }
+        status:
+          type: string
+          enum: [draft, published, archived]
+          example: published
+          description: |
+            Optional.
+              - On POST: omitting defaults to `draft`.
+              - On PUT: omitting preserves the post's existing status. Any explicit value must be one of the enum value members or the request 404s.
+        markdown_content: { type: string, minLength: 10, example: "# Hello\n\nworld" }
+        category_id: { type: integer, format: int64, minimum: 1, example: 1 }
+        tag_ids:
+          type: array
+          items: { type: integer, format: int64 }
+          example: [3, 5]
+          description: Optional. Tag ids to attach to the post.
+
+    PostUpdateRequest:
+      type: object
+      description: |
+        JSON-encoded payload sent as the `data` form field of a multipart PUT to `/admin/posts/{id}` - Partial Update.
       properties:
         title: { type: string, minLength: 3, maxLength: 200, example: "Hello world" }
         status:
@@ -955,10 +976,8 @@ paths:
       x-roles: [Author, Editor, Admin]
       summary: Create a post. Admin / Editor / Author allowed; Subscriber denied.
       description: |
-        Accepts `multipart/form-data` only. The post body itself goes into a
-        `data` form field as a JSON string (see the `PostWriteRequest`
-        schema). An optional `featured_image` file part attaches a JPEG or
-        PNG (≤5 MB, min 800×800).
+        Accepts `multipart/form-data` only. The post body itself goes into a `data` form field as a JSON string (see the `PostCreateRequest` schema).
+        An optional `featured_image` file part attaches a JPEG or PNG (≤5 MB, min 800×800).
       requestBody:
         required: true
         content:
@@ -969,7 +988,7 @@ paths:
               properties:
                 data:
                   type: string
-                  description: JSON-encoded `PostWriteRequest`.
+                  description: JSON-encoded `PostCreateRequest`.
                 featured_image:
                   type: string
                   format: binary
@@ -1019,11 +1038,13 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [data]
+              description: |
+                Provide `data`, `featured_image` or both - a request with neither returns 400.
+                `data` only - applies the partial update; `featured_image` only - adds or replaces the image and preserves other fields.
               properties:
                 data:
                   type: string
-                  description: JSON-encoded `PostWriteRequest`.
+                  description: Optional on Update. JSON-encoded `PostUpdateRequest`.
                 featured_image:
                   type: string
                   format: binary

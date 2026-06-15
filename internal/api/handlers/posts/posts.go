@@ -52,9 +52,9 @@ type PostResponse struct {
 }
 
 type postWriteRequest struct {
-	Title               string  `json:"title"`
-	Markdown            string  `json:"markdown_content"`
-	CategoryID          int64   `json:"category_id"`
+	Title               *string `json:"title"`
+	Markdown            *string `json:"markdown_content"`
+	CategoryID          *int64  `json:"category_id"`
 	TagIDs              []int64 `json:"tag_ids"`
 	RemoveFeaturedImage bool    `json:"remove_featured_image"`
 	Status              string  `json:"status"`
@@ -80,21 +80,52 @@ type PostsByTagResponse struct {
 }
 
 func (r *postWriteRequest) normalize() {
-	r.Title = strings.TrimSpace(r.Title)
-	r.Markdown = strings.TrimSpace(r.Markdown)
+	if r.Title != nil {
+		title := strings.TrimSpace(*r.Title)
+		r.Title = &title
+	}
+
+	if r.Markdown != nil {
+		md := strings.TrimSpace(*r.Markdown)
+		r.Markdown = &md
+	}
+
 	r.Status = strings.TrimSpace(r.Status)
 }
 
-func (r *postWriteRequest) Validate() validation.Errors {
+func (r *postWriteRequest) ValidateUpdate() validation.Errors {
 	e := validation.New()
-	e.Add("title", validation.Title(r.Title))
-	e.Add("markdown_content", validation.MarkdownContent(r.Markdown))
-	if r.CategoryID <= 0 {
-		e.Add("category_id", "is required")
+	if r.Title != nil {
+		e.Add("title", validation.Title(*r.Title))
+	}
+
+	if r.Markdown != nil {
+		e.Add("markdown_content", validation.MarkdownContent(*r.Markdown))
+	}
+
+	if r.CategoryID != nil && *r.CategoryID <= 0 {
+		e.Add("category_id", "must be a positive id.")
 	}
 
 	if r.Status != "" {
 		e.Add("status", validation.PostStatus(r.Status))
+	}
+
+	return e
+}
+
+func (r *postWriteRequest) ValidateCreate() validation.Errors {
+	e := r.ValidateUpdate()
+	if r.Title == nil {
+		e.Add("title", "is required")
+	}
+
+	if r.Markdown == nil {
+		e.Add("markdown_content", "is required")
+	}
+
+	if r.CategoryID == nil {
+		e.Add("category_id", "is required")
 	}
 
 	return e
@@ -324,7 +355,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, fileHeader, ok := s.parsePostMultipart(w, r)
+	req, fileHeader, _, ok := s.parsePostMultipart(w, r, true)
 	if !ok {
 		return
 	}
@@ -334,7 +365,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		req.Status = postRepository.PostStatusDraft // defaults to "draft" when the client omits the status.
 	}
 
-	errs := req.Validate()
+	errs := req.ValidateCreate()
 	if !errs.IsEmpty() {
 		httpx.WriteValidationError(w, errs)
 		return
@@ -345,14 +376,14 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := markdown.Render(req.Markdown)
+	html, err := markdown.Render(*req.Markdown)
 	if err != nil {
 		s.Log.Error("render markdown", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not render markdown")
 		return
 	}
 
-	base := slug.Generate(req.Title)
+	base := slug.Generate(*req.Title)
 	if base == "" {
 		httpx.WriteValidationError(w, map[string]string{"title": "must contain at least one Latin or Cyrillic letter or digit"})
 		return
@@ -369,7 +400,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		imageSaveAttempted bool
 		imageRespWritten   bool // readAndValidateImage / saveImageAndEnqueue wrote their own envelope
 	)
-	id, err := slug.Allocate(r.Context(), s.Posts, req.Title, "", 0, s.createFn(w, r, claims, req, fileHeader, html, &imagePath, &imageSaveAttempted, &imageRespWritten))
+	id, err := slug.Allocate(r.Context(), s.Posts, *req.Title, "", 0, s.createFn(w, r, claims, req, fileHeader, html, &imagePath, &imageSaveAttempted, &imageRespWritten))
 	if err != nil {
 		// Roll the image back so we don't leak orphans on a failed INSERT.
 		if imagePath != "" {
@@ -423,13 +454,13 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, fileHeader, ok := s.parsePostMultipart(w, r)
+	req, fileHeader, dataPresent, ok := s.parsePostMultipart(w, r, false)
 	if !ok {
 		return
 	}
 
 	req.normalize()
-	errs := req.Validate()
+	errs := req.ValidateUpdate()
 	if !errs.IsEmpty() {
 		httpx.WriteValidationError(w, errs)
 		return
@@ -454,17 +485,31 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	oldPath := existing.FeaturedImagePath
 
+	title := existing.Title
+	if req.Title != nil {
+		title = *req.Title
+	}
+
+	categoryID := existing.CategoryID
+	if req.CategoryID != nil {
+		categoryID = *req.CategoryID
+	}
+
 	// Status: empty in request means keep existing.
 	newStatus := req.Status
 	if newStatus == "" {
 		newStatus = existing.Status
 	}
 
-	html, err := markdown.Render(req.Markdown)
-	if err != nil {
-		s.Log.Error("render markdown", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not render markdown")
-		return
+	mdContent, html := existing.MarkdownContent, existing.HTMLContent
+	if req.Markdown != nil {
+		mdContent = *req.Markdown
+		html, err = markdown.Render(mdContent)
+		if err != nil {
+			s.Log.Error("render markdown", "err", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not render markdown")
+			return
+		}
 	}
 
 	// Resolve the new image path before touching the DB. Possible outcomes:
@@ -496,7 +541,9 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	// Posts always regenerate slug from the new title — no clientSlug input.
 	// excludeID=id so the row's own slug doesn't count as a self-collision.
 	// AllocateForName runs Generate(title) internally; an empty result surfaces as ErrEmptyGeneratedSlug below (image rollback path covers it).
-	_, err = slug.Allocate(r.Context(), s.Posts, req.Title, "", id, s.updateFn(r, id, req, html, newPath, newStatus))
+	_, err = slug.Allocate(r.Context(), s.Posts, title, "", id, s.updateFn(r, id, postRepository.PostUpdate{
+		CategoryID: categoryID, Title: title, Markdown: mdContent, HTML: html, FeaturedImagePath: newPath, Status: newStatus,
+	}))
 	if err != nil {
 		// Roll back any freshly-saved image on UPDATE failure so we don't leak orphans.
 		// We deliberately do NOT touch oldPath here — the existing post still references it.
@@ -517,11 +564,13 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tag set is rewritten unconditionally on update — pass nil to clear.
-	if err := s.Tags.ReplaceForPost(r.Context(), id, req.TagIDs); err != nil {
-		s.Log.Error("replace tags", "err", err, "post_id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tags")
-		return
+	if dataPresent {
+		// Tag set is rewritten unconditionally on update — pass nil to clear.
+		if err := s.Tags.ReplaceForPost(r.Context(), id, req.TagIDs); err != nil {
+			s.Log.Error("replace tags", "err", err, "post_id", id)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tags")
+			return
+		}
 	}
 
 	if deleteOld != "" {
@@ -850,15 +899,17 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 // Errors accumulate into `errs` and are written as a 400 validation envelope.
 // Returns false when the caller should stop (either a 400 or a 500 has already been written).
 func (s *Service) validateTaxonomies(w http.ResponseWriter, r *http.Request, req postWriteRequest, errs validation.Errors) bool {
-	exists, err := s.Categories.Exists(r.Context(), req.CategoryID)
-	if err != nil {
-		s.Log.Error("category exists check", "err", err, "category_id", req.CategoryID)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not validate category")
-		return false
-	}
+	if req.CategoryID != nil {
+		exists, err := s.Categories.Exists(r.Context(), *req.CategoryID)
+		if err != nil {
+			s.Log.Error("category exists check", "err", err, "category_id", req.CategoryID)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not validate category")
+			return false
+		}
 
-	if !exists {
-		errs.Add("category_id", "does not exist")
+		if !exists {
+			errs.Add("category_id", "does not exist")
+		}
 	}
 
 	if len(req.TagIDs) > 0 {
@@ -886,33 +937,20 @@ func (s *Service) validateTaxonomies(w http.ResponseWriter, r *http.Request, req
 // Caps the body at MultipartBodyLimit via http.MaxBytesReader so a single endpoint can accept
 // a larger payload than the global LimitBody middleware while still being bounded.
 //
-// Returns (request, fileHeader, "", "", nil) on success when no file was uploaded;
-// (request, header, "", "", nil) when a file IS present.
-// The caller is responsible for reading + validating the file via header.Open().
-func (s *Service) parsePostMultipart(w http.ResponseWriter, r *http.Request) (postWriteRequest, *multipart.FileHeader, bool) {
+// dataRequired controls whether the "data" form field is mandantory.
+//
+// Returns (request, fileHeader, dataPresent, ok)
+func (s *Service) parsePostMultipart(w http.ResponseWriter, r *http.Request, dataRequired bool) (postWriteRequest, *multipart.FileHeader, bool, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, MultipartBodyLimit)
 	if err := r.ParseMultipartForm(MultipartBodyLimit); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
 			httpx.WriteError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "request body exceeds 5 MB limit")
-			return postWriteRequest{}, nil, false
+			return postWriteRequest{}, nil, false, false
 		}
 
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid multipart/form-data")
-		return postWriteRequest{}, nil, false
-	}
-
-	rawData := r.FormValue("data")
-	if rawData == "" {
-		httpx.WriteValidationError(w, map[string]string{"data": "is required (JSON-encoded post fields)"})
-		return postWriteRequest{}, nil, false
-	}
-
-	var req postWriteRequest
-	if err := json.Unmarshal([]byte(rawData), &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body",
-			"\"data\" form field is not valid JSON")
-		return postWriteRequest{}, nil, false
+		return postWriteRequest{}, nil, false, false
 	}
 
 	// Optional file part.
@@ -923,7 +961,27 @@ func (s *Service) parsePostMultipart(w http.ResponseWriter, r *http.Request) (po
 		}
 	}
 
-	return req, header, true
+	rawData := r.FormValue("data")
+	if rawData == "" {
+		switch {
+		case dataRequired:
+			httpx.WriteValidationError(w, map[string]string{"data": "is required (JSON-encoded post fields)"})
+			return postWriteRequest{}, nil, false, false
+		case header == nil:
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "provide a \"data\" field, a \"featured_image\" file or both.")
+			return postWriteRequest{}, nil, false, false
+		default:
+			return postWriteRequest{}, header, false, true
+		}
+	}
+
+	var req postWriteRequest
+	if err := json.Unmarshal([]byte(rawData), &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "\"data\" form field is not valid JSON")
+		return postWriteRequest{}, nil, false, false
+	}
+
+	return req, header, true, true
 }
 
 // readAndValidateImage reads the multipart file into memory, decodes it for validation, then re-encodes web-optimized.
@@ -1013,19 +1071,16 @@ func (s *Service) createFn(
 		}
 
 		return s.Posts.Create(r.Context(), postRepository.PostInsert{
-			AuthorID: claims.UserID, CategoryID: req.CategoryID, Title: req.Title,
-			Markdown: req.Markdown, HTML: html, Slug: slugCandidate,
+			AuthorID: claims.UserID, CategoryID: *req.CategoryID, Title: *req.Title,
+			Markdown: *req.Markdown, HTML: html, Slug: slugCandidate,
 			FeaturedImagePath: *imagePath, Status: req.Status,
 		})
 	}
 }
 
-func (s *Service) updateFn(r *http.Request, id int64, req postWriteRequest, html, path, status string) func(string) (struct{}, error) {
+func (s *Service) updateFn(r *http.Request, id int64, model postRepository.PostUpdate) func(string) (struct{}, error) {
 	return func(slugCandidate string) (struct{}, error) {
-		return struct{}{}, s.Posts.Update(r.Context(), id, postRepository.PostUpdate{
-			CategoryID: req.CategoryID, Title: req.Title, Markdown: req.Markdown, HTML: html,
-			Slug: slugCandidate, FeaturedImagePath: path, Status: status,
-		})
+		return struct{}{}, s.Posts.Update(r.Context(), id, model)
 	}
 }
 
