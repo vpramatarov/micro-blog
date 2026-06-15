@@ -1,6 +1,4 @@
-// Wire types mirroring the Go API contract (api/openapi.yaml). Field names match
-// the JSON exactly.
-
+// Wire types mirroring the Go API contract (api/openapi.yaml). Field names match the JSON exactly.
 export interface User {
   id: number;
   username: string;
@@ -22,21 +20,23 @@ export interface Page<T> {
   total: number;
 }
 
-// Minimal Post shape — only the fields the scaffold's home connectivity demo
-// touches. Later feature plans expand this.
 export interface Post {
   id: number;
   title: string;
   slug: string;
+  code?: string; // hashid
   author_name: string;
+  category_name?: string;
   status: string;
   created_at: string;
   featured_image_path?: string;
   excerpt: string;
+  markdown_content?: string;
+  html_content?: string,
+  tags?: Record<string, string>
 }
 
-// Error envelope: {error, message, fields?}. `fields` is present only on
-// 400 invalid_input validation failures.
+// Error envelope: {error, message, fields?}. `fields` is present only on 400 invalid_input validation failures.
 export interface ApiErrorBody {
   error: string;
   message?: string;

@@ -157,3 +157,8 @@ export async function getMe(): Promise<User> {
 export async function listPosts(page = 1, perPage = 20): Promise<Page<Post>> {
   return request<Page<Post>>(`/posts?page=${page}&per_page=${perPage}`, { auth: false });
 }
+
+// getPost - get published post by slug. Throws ApiError with status 404 for not found entry.
+export async function getPost(slug: string): Promise<Post> {
+  return request<Post>(`/posts/${encodeURIComponent(slug)}`, {auth: false})
+}

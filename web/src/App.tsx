@@ -5,6 +5,7 @@ import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { NotFound } from "./pages/NotFound";
+import { PostDetail } from "./pages/PostDetail";
 
 function Nav() {
   const { status, user, logout } = useAuth();
@@ -36,6 +37,7 @@ export function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/posts/:slug" element={<PostDetail />} />
           <Route path="/login" element={<Login />} />
           <Route
             path="/dashboard"

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { listPosts } from "../lib/api";
 import type { Post } from "../types";
 import { uploadsUrl } from "../lib/uploads";
+import { Link } from "react-router-dom";
 
 // Directly GET-able public endpoints (rendered as links).
 const PUBLIC_LINKS: { href: string; label: string }[] = [
@@ -80,15 +81,14 @@ export function Home() {
       <ul>
         {posts.map((p) => (
             <li key={p.id}>
-                {p.featured_image_path ? (
-                  <a href={POSTS_BASE + p.slug}>
-                    <img src={uploadsUrl(p.featured_image_path, "s")} alt={p.title} />
-                  </a>
-                ): null}
-                
-                <a href={POSTS_BASE + p.slug}><h2>{p.title}</h2></a>
-                <small>{p.author_name}</small>
-                <p>{p.excerpt}</p>
+              {p.featured_image_path ? (
+                <Link to={POSTS_BASE + p.slug}>
+                  <img src={uploadsUrl(p.featured_image_path, "s")} alt={p.title} />
+                </Link>
+              ): null}
+              
+              <h2><Link to={POSTS_BASE + p.slug}>{p.title}</Link> <small>— {p.author_name}</small></h2>
+              <p>{p.excerpt}</p>
             </li>
         ))}
       </ul>
