@@ -86,8 +86,9 @@ export function Home() {
                   </a>
                 ): null}
                 
-                <a href={POSTS_BASE + p.slug}>{p.title}</a> <small>— {p.author_name}</small>
-              <p>{p.excerpt}</p>
+                <a href={POSTS_BASE + p.slug}><h2>{p.title}</h2></a>
+                <small>{p.author_name}</small>
+                <p>{p.excerpt}</p>
             </li>
         ))}
       </ul>
