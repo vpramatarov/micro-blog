@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository"
@@ -411,6 +412,63 @@ func (r *Repo) CountByTagID(ctx context.Context, tagID, authorID int64, status s
 	return n, nil
 }
 
+// GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
+// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
+//
+// The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
+// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
+func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
+	return r.slugFinder.Generate(ctx, base, excludePostID)
+}
+
+// Search return sthe page of posts matchinq `q` in title, markdown body or author username, newest-first.
+func (r *Repo) Search(ctx context.Context, q, status string, limit, offset int) ([]Post, error) {
+	pattern := searchLikePattern(q)
+	sql := fmt.Sprintf(`
+		SELECT %s FROM %s AS p
+		INNER JOIN users AS u ON u.id = p.author_id
+		INNER JOIN categories AS c ON c.id = p.category_id
+		WHERE (
+			p.title LIKE ? ESCAPE '\' OR
+			p.markdown_content LIKE ? ESCAPE '\' OR
+			u.username LIKE ? ESCAPE '\'
+		)`, POSTS_SELECT_COLUMS, DB_TABLE)
+	args := []any{pattern, pattern, pattern}
+	if status != "" {
+		sql += ` AND p.status = ?`
+		args = append(args, status)
+	}
+
+	sql += ` ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	return r.query(ctx, sql, args...)
+}
+
+// CountSearch is the total of Search().
+func (r *Repo) CountSearch(ctx context.Context, q, status string) (int, error) {
+	pattern := searchLikePattern(q)
+	sql := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s AS p
+		INNER JOIN users AS u ON u.id = p.author_id
+		WHERE (
+			p.title LIKE ? ESCAPE '\' OR
+			p.markdown_content LIKE ? ESCAPE '\' OR
+			u.username LIKE ? ESCAPE '\'
+		)`, DB_TABLE)
+	args := []any{pattern, pattern, pattern}
+	if status != "" {
+		sql += ` AND p.status = ?`
+		args = append(args, status)
+	}
+
+	var n int
+	if err := r.db.QueryRowContext(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count search posts: %w", err)
+	}
+
+	return n, nil
+}
+
 func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post, error) {
 	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
@@ -448,11 +506,8 @@ func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post,
 	return posts, nil
 }
 
-// GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
-// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
-//
-// The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
-// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
-func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
-	return r.slugFinder.Generate(ctx, base, excludePostID)
+// Wraps a query as literal Like term. Meta characters % _ \ are escaped.
+func searchLikePattern(q string) string {
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + esc.Replace(q) + "%"
 }

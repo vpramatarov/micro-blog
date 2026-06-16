@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/httpx"
@@ -31,6 +32,9 @@ const roleAuthor string = "Author"
 
 // MultipartBodyLimit caps the multipart body for write endpoints. 5 MiB image payload + ~64 KiB envelope for form boundary + the JSON `data` field.
 const MultipartBodyLimit = 5*1024*1024 + 64*1024
+
+// searchMinQueryLen is the shortest accepted `/search?q={term}` (in runes). Shorter queries return an empty result set.
+const searchMinQueryLen = 3
 
 // errImageRejected is the sentinel returned by Create Post's slug.AllocateForName
 // create-closure when the image pipeline has already written its own response
@@ -704,6 +708,42 @@ func (s *Service) ListByTagSlugAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.listByTag(w, r, tag, authorID, status)
+}
+
+func (s *Service) Search(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	ctx := r.Context()
+	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
+	if !ok {
+		return
+	}
+
+	if utf8.RuneCountInString(q) < searchMinQueryLen {
+		httpx.WriteJSON(w, http.StatusOK, httpx.Page[PostResponse]{Items: []PostResponse{}, Page: page, PerPage: perPage, Total: 0})
+		return
+	}
+
+	total, err := s.Posts.CountSearch(ctx, q, postRepository.PostStatusPublished)
+	if err != nil {
+		s.Log.Error("count posts", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	posts, err := s.Posts.Search(ctx, q, postRepository.PostStatusPublished, limit, offset)
+	if err != nil {
+		s.Log.Error("list posts", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	items, err := s.hydrateMany(r, posts)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, httpx.Page[PostResponse]{Items: items, Page: page, PerPage: perPage, Total: total})
 }
 
 // lookupCategoryBySlug resolves the URL slug to a row or writes the standard 404 envelope.

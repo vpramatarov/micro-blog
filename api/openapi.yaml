@@ -552,10 +552,41 @@ paths:
               schema: { $ref: '#/components/schemas/PaginatedPosts' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
+  /search:
+    get:
+      tags: [public, posts]
+      operationId: searchPosts
+      x-roles: [anonymous, Subscriber, Author, Editor, Admin]
+      summary: Search published posts by title, author or content.
+      description: |
+        Returns the page of published posts whose title, author username or content contains `q`
+        (substring match, case-insensitive for ASCII). Drafts and archived posts never appear.
+        Same paginated wrapper as `GET /posts`.
+      security: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: |
+            Search text matched against post title, author username or content.
+            Queries shorter than 3 characters (including blank or omitted) return an empty result set.
+          schema: {type: string}
+        - $ref: '#/components/parameters/QueryPage'
+        - $ref: '#/components/parameters/QueryPerPage'
+      responses:
+        '200':
+          description: |
+           Paginated published posts matching the query.
+           An empty `items` array when `q` is shorter than 3 characters or nothing matched.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPosts' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   /posts/{slug}:
     get:
       tags: [public, posts]
-      operationId: getPostBySlug
+      operationId: getBySlug
       x-roles: [anonymous, Subscriber, Author, Editor, Admin]
       summary: Read a single post by its slug.
       description: |

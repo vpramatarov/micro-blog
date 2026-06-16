@@ -150,6 +150,7 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	public := []string{
 		"GET /",
 		"GET /posts",
+		"GET /search",
 		"GET /posts/{slug}",
 		"GET /p/{code}",
 		"GET /categories",

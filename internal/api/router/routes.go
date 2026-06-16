@@ -68,6 +68,7 @@ type Middlewares struct {
 // Route groups:
 //   - /                                 public — Home
 //   - GET /posts                        public — list posts (every response item carries a hashid `code` AND a `slug`)
+//   - GET /search                       public — search published posts by title, author or content (?q=)
 //   - GET /posts/{slug}                 public — read a post by its auto-generated slug
 //   - GET /p/{code}                     public — read a post by its sqids hashid (was /posts/{code} pre-categories)
 //   - GET /s/{code}                     public — URL-shortener resolution; 302 to same-origin targets, HTML interstitial for external hosts
@@ -124,6 +125,7 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	// Public post reads — no auth. Read-by-id is intentionally absent here;
 	// only the hashid-encoded `{code}` route exists publicly.
 	r.Get("/posts", srvc.Posts.List)
+	r.Get("/search", srvc.Posts.Search)
 	r.Get("/p/{code}", srvc.Posts.GetByCode)
 	r.Get("/posts/{slug}", srvc.Posts.GetBySlug)
 	// Public URL-shortener resolution. Decodes the hashid back to a row and 302-redirects to the original URL.

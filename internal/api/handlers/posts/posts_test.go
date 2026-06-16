@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1819,6 +1820,97 @@ func TestCreatePostImageOnlyRejected(t *testing.T) {
 	assertValidationFields(t, rec.Body.Bytes(), map[string]string{"data": "is required (JSON-encoded post fields)"})
 }
 
+func TestSearchPosts(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	ctx := t.Context()
+	seed := func(authorRole, title, slug, markdown, status string) {
+		t.Helper()
+		if _, err := env.app.postsRepo.Create(ctx, postsrepo.PostInsert{
+			AuthorID: env.userID[authorRole], CategoryID: 1, Title: title,
+			Slug: slug, Markdown: markdown,
+			HTML: "the <strong>original</strong> markdown content.", Status: status,
+		}); err != nil {
+			t.Fatalf("seed %q: %v", slug, err)
+		}
+	}
+
+	seed("Admin", "Gardening Basics", "gardening-basics", "# Soil and seeds for beginners", postsrepo.PostStatusPublished)
+	seed("Author", "Weeknight Cooking", "weeknight-cooking", "# Recipes with zucchini and basil", postsrepo.PostStatusPublished)
+	seed("Admin", "Secret Roadmap", "secret-roadmap", "# Unreleased plans", postsrepo.PostStatusDraft)
+	cases := []struct {
+		name     string
+		q        string
+		wantSlug []string
+	}{
+		{"by title", "gardening", []string{"gardening-basics"}},
+		{"by content", "zucchini", []string{"weeknight-cooking"}},
+		{"by author username", "author", []string{"weeknight-cooking"}},
+		{"draft excluded", "secret", nil},
+		{"no match", "nonexistingterm", nil},
+		{"wildcard is literal", "%%%", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, env.app.r, http.MethodGet, "/search?q="+url.QueryEscape(tc.q), "", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+
+			var page struct {
+				Items []postsrepo.Post `json:"items"`
+				Total int              `json:"total"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+				t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+			}
+
+			got := make([]string, len(page.Items))
+			for i, p := range page.Items {
+				got[i] = p.Slug
+			}
+
+			if page.Total != len(tc.wantSlug) {
+				t.Errorf("total: got %d | slugs (%v), want %d | slugs (%v)", page.Total, got, len(tc.wantSlug), tc.wantSlug)
+			}
+
+			if !sameStringSet(got, tc.wantSlug) {
+				t.Errorf("slugs: got %v, want %v", got, tc.wantSlug)
+			}
+		})
+	}
+}
+
+func TestSearchPostsShortQueryReturnsEmpty(t *testing.T) {
+	env := setupPostWriteEnv(t)
+	if _, err := env.app.postsRepo.Create(t.Context(), postsrepo.PostInsert{
+		AuthorID: env.userID["Admin"], CategoryID: 1, Title: "Gardening Basics",
+		Slug: "gardening-basics", Markdown: "# Soil and seeds for beginners",
+		HTML: "the <strong>original</strong> markdown content.", Status: postsrepo.PostStatusPublished,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	for _, path := range []string{"/search", "/search?q=", "/search?q=%20%20", "/search?q=g", "/search?q=ga"} {
+		rec := doJSON(t, env.app.r, http.MethodGet, path, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d, want 200; body=%s", path, rec.Code, rec.Body.String())
+		}
+
+		var page struct {
+			Items []postsrepo.Post `json:"items"`
+			Total int              `json:"total"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+			t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+		}
+
+		if page.Total != 0 || len(page.Items) != 0 {
+			t.Errorf("%s: got total=%d, items=%d, want empty dataset", path, page.Total, len(page.Items))
+		}
+	}
+}
+
 func assertValidationFields(t *testing.T, body []byte, want map[string]string) {
 	t.Helper()
 	type validationResp struct {
@@ -1861,4 +1953,28 @@ func editorToken(t *testing.T, app *appDeps) string {
 	}
 
 	return tok
+}
+
+// sameStringSet reports whether a and b containe the same elements regardless of order.
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	m := map[string]int{}
+	for _, s := range a {
+		m[s]++
+	}
+
+	for _, s := range b {
+		m[s]--
+	}
+
+	for _, v := range m {
+		if v != 0 {
+			return false
+		}
+	}
+
+	return true
 }
