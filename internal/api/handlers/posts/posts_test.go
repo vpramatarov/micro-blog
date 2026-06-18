@@ -1961,17 +1961,16 @@ func sameStringSet(a, b []string) bool {
 		return false
 	}
 
-	m := map[string]int{}
+	m := make(map[string]int, len(a))
+
 	for _, s := range a {
 		m[s]++
 	}
 
 	for _, s := range b {
 		m[s]--
-	}
-
-	for _, v := range m {
-		if v != 0 {
+		// If a count drops below zero, b has more of this element than a did (b has something a doesn't (or more of it))
+		if m[s] < 0 {
 			return false
 		}
 	}
