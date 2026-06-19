@@ -160,7 +160,6 @@ func main() {
 			AuthRefresh:          authRefreshMW,
 			Global: []func(http.Handler) http.Handler{
 				chiMW.RequestID,
-				chiMW.RealIP,
 				observabilityMW.RequestLogger(logger),
 				chiMW.Recoverer,
 				securityMW.LimitBody(securityMW.DefaultBodyLimit),
