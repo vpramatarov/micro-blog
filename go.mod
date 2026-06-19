@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/disintegration/imaging v1.6.2
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/writeas/go-strip-markdown v2.0.1+incompatible
