@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import tailwindcss from '@tailwindcss/vite';
 import react from "@vitejs/plugin-react";
 
 // API namespaces owned by the Go backend. In dev these are proxied to the Go
@@ -31,7 +32,10 @@ const target = process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8090";
 const usePolling = process.env.VITE_USE_POLLING === "true";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+      react(),
+    tailwindcss()
+  ],
   base: "/",
   build: {
     outDir: "dist",

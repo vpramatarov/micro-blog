@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   --fg: #1a1a1a;
   --muted: #666;
@@ -9,12 +11,10 @@
   color: var(--fg);
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
+@layer base {
+  h1, h2, h3, h4, h5, h6, p, blockquote {
+    margin-bottom: 1em;
+  }
 }
 
 .app {

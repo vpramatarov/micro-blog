@@ -52,8 +52,8 @@ export function Home() {
   }, []);
 
   return (
-    <section>
-      <h1>micro-blog</h1>
+    <section class="max-w-5xl mx-auto py-12 px-6">
+      <h1 class="text-5xl font-bold mb-4">Blog</h1>
       {/*<p>Markdown micro-blog API with a built-in URL shortener. Public endpoints:</p>*/}
 
       {/*<h2>Explore</h2>*/}
@@ -74,22 +74,42 @@ export function Home() {
       {/*  ))}*/}
       {/*</ul>*/}
 
-      <h2>Latest posts</h2>
+      <h2 class="text-2xl font-semibold mb-2">Latest posts</h2>
       {loading && <p>Loading…</p>}
       {error && <p className="error">Could not load posts: {error}</p>}
       {!loading && !error && posts.length === 0 && <p>No published posts yet.</p>}
       <ul>
         {posts.map((p) => (
-            <li key={p.id}>
-              {p.featured_image_path ? (
-                <Link to={POSTS_BASE + p.slug}>
-                  <img src={uploadsUrl(p.featured_image_path, "s")} alt={p.title} />
-                </Link>
-              ): null}
-              
-              <h2><Link to={POSTS_BASE + p.slug}>{p.title}</Link> <small>— {p.author_name}</small></h2>
-              <p>{p.excerpt}</p>
-            </li>
+
+              <li key={p.id} class="mb-5">
+                <article className="bg-white rounded-2xl shadow-card p-8 hover:shadow-xl transition">
+                  {p.featured_image_path ? (
+                      <Link to={POSTS_BASE + p.slug}>
+                        <img src={uploadsUrl(p.featured_image_path, "s")} alt={p.title}/>
+                      </Link>
+                  ) : null}
+
+                  <h2 class="text-3xl font-bold"><Link className="hover:text-primary"
+                                                       to={POSTS_BASE + p.slug}>{p.title}</Link> <small
+                      class="block text-gray-500 text-sm font-normal mt-1">by {p.author_name}</small></h2>
+                  <p class="mt-5 text-gray-600 leading-7">{p.excerpt}</p>
+
+                  <div class="mt-8 flex justify-between items-center">
+
+                    <div class="text-sm text-gray-500 flex gap-5">
+                      <span>📅 May 18, 2024</span>
+                      <span>• 2 min read</span>
+                    </div>
+
+                    <Link to={POSTS_BASE + p.slug} className="font-semibold text-primary hover:underline">
+                      Read more →
+                    </Link>
+
+                  </div>
+
+                </article>
+              </li>
+
         ))}
       </ul>
     </section>
