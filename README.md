@@ -5,7 +5,7 @@ A Go HTTP API for a **markdown micro-blog with a built-in URL shortener**, secur
 
 ## Tech stack & dependencies
 
-**Go 1.26** — module path `github.com/vpramatarov/micro-blog`.
+**Go 1.26** - module path `github.com/vpramatarov/micro-blog`.
 
 ## Quick start
 
@@ -17,9 +17,9 @@ cd micro-blog
 # 2. Pull dependencies.
 go mod tidy
 
-# 3. Optional: seed an admin user. ADMIN_SEED_PASSWORD is required — the
+# 3. Optional: seed an admin user. ADMIN_SEED_PASSWORD is required - the
 #    seed subcommand refuses to fall back to a known default. Migrations
-#    don't need to be run by hand — the server auto-applies them at startup
+#    don't need to be run by hand - the server auto-applies them at startup
 #    (see `internal/migrate`).
 $env:ADMIN_SEED_PASSWORD = "your-strong-password"
 go run ./cmd/migrate seed
@@ -30,9 +30,9 @@ go run ./cmd/server
 ```
 
 Then in a browser:
-- `http://localhost:8080/docs` — Swagger UI, click *Authorize* and paste a bearer token to exercise endpoints.
-- `http://localhost:8080/openapi.yaml` — raw spec.
-- `http://localhost:8080/openapi.json` — JSON spec.
+- `http://localhost:8080/docs` - Swagger UI, click *Authorize* and paste a bearer token to exercise endpoints.
+- `http://localhost:8080/openapi.yaml` - raw spec.
+- `http://localhost:8080/openapi.json` - JSON spec.
 
 > The steps above run the **API only**. For the React frontend and the
 > containerized workflows, see **[Setup & running](#setup--running)** below.
@@ -42,7 +42,7 @@ Then in a browser:
 ## Setup & running
 
 The project is a Go API plus a React (Vite + TypeScript) single-page app. In
-**production the Go binary serves everything** — the JSON API and the compiled
+**production the Go binary serves everything** - the JSON API and the compiled
 SPA, embedded into the binary via `//go:embed`. In **development** you can either
 let Go serve a pre-built SPA, or run the Vite dev server for hot-module reload
 (HMR). Both a local (no Docker) and a Docker workflow are supported.
@@ -53,7 +53,7 @@ let Go serve a pre-built SPA, or run the Vite dev server for hot-module reload
 |---|---|
 | **Go 1.26+** | Building / running the API locally (the no-Docker path). |
 | **Node 22+ & npm** | Building or developing the React frontend locally. |
-| **Docker Desktop (Compose v2)** | The Docker path — nothing else required; the image builds both Go and the frontend for you. |
+| **Docker Desktop (Compose v2)** | The Docker path - nothing else required; the image builds both Go and the frontend for you. |
 
 ### Configure `.env`
 
@@ -64,11 +64,11 @@ copy .env.example .env
 ```
 
 Then edit `.env`:
-- `JWT_SECRET` — **required**, ≥ 32 bytes. Generate one with `openssl rand -base64 48`
+- `JWT_SECRET` - **required**, ≥ 32 bytes. Generate one with `openssl rand -base64 48`
   (or in PowerShell: `[Convert]::ToBase64String([byte[]](1..48 | % {Get-Random -Maximum 256}))`).
 - For local non-HTTPS dev, set `COOKIE_SECURE=false` and `GO_ENV=dev` (so the
   refresh cookie is actually sent and migration logs are verbose).
-- `ADMIN_SEED_PASSWORD` — set this if you intend to seed the admin user.
+- `ADMIN_SEED_PASSWORD` - set this if you intend to seed the admin user.
 
 The full variable list is in **[Configuration](#configuration)**. In the Docker
 workflows, container-specific values (`DB_STRING=/data/vault.db`,
@@ -91,9 +91,9 @@ ships a "frontend not built yet" placeholder there):
 go run ./cmd/server      # auto-migrates, then listens on :8080 (PORT)
 ```
 
-**With the React frontend — two options:**
+**With the React frontend - two options:**
 
-*Option 1 — Go serves the built SPA (single origin, no Node process at runtime):*
+*Option 1 - Go serves the built SPA (single origin, no Node process at runtime):*
 ```powershell
 cd web
 npm install
@@ -101,16 +101,16 @@ npm run build            # outputs web/dist, which the server embeds via //go:em
 cd ..
 go run ./cmd/server      # full app at http://localhost:8080
 ```
-`go run`/`go build` embed `web/dist` **at compile time** — after changing the
+`go run`/`go build` embed `web/dist` **at compile time** - after changing the
 frontend, re-run `npm run build` and restart the server. For an iterative
 frontend loop use Option 2.
 
-*Option 2 — Vite dev server with hot reload (two terminals):*
+*Option 2 - Vite dev server with hot reload (two terminals):*
 ```powershell
-# Terminal 1 — the API
+# Terminal 1 - the API
 go run ./cmd/server                 # http://localhost:8080
 
-# Terminal 2 — the Vite dev server
+# Terminal 2 - the Vite dev server
 cd web
 npm install
 npm run dev                          # http://localhost:5173  ← open this
@@ -126,14 +126,14 @@ Go binary that embeds it (pure-Go SQLite, no CGO). Two Compose files:
 `docker-compose.yml` (production baseline) and `docker-compose.override.yml`
 (dev; auto-merged by `docker compose`).
 
-**Development (hot reload) — recommended for local work:**
+**Development (hot reload) - recommended for local work:**
 ```powershell
 copy .env.example .env               # set JWT_SECRET (+ ADMIN_SEED_PASSWORD)
 docker compose up --build
 ```
 This starts two services:
-- **`api`** — the Go server with live reload (`air`) at **http://localhost:8080**.
-- **`web`** — the Vite dev server with HMR at **http://localhost:5173** ← *open this*.
+- **`api`** - the Go server with live reload (`air`) at **http://localhost:8080**.
+- **`web`** - the Vite dev server with HMR at **http://localhost:5173** ← *open this*.
 
 Edit anything under `web/` and the browser hot-updates; edit Go source and `air`
 rebuilds the API. The `web` container proxies API calls to the `api` service over
@@ -145,7 +145,7 @@ docker compose -f docker-compose.yml build     # Node builds web/dist, Go embeds
 docker compose -f docker-compose.yml up -d
 # API + SPA served together at http://localhost:8080
 ```
-The base stack sets `GO_ENV=prod` and `COOKIE_SECURE=true` — it expects a
+The base stack sets `GO_ENV=prod` and `COOKIE_SECURE=true` - it expects a
 TLS-terminating proxy in front. For plain-HTTP local testing, prefer the dev
 stack (or set `COOKIE_SECURE=false`). Data (the SQLite file and uploaded images)
 persists in the `appdata` named volume at `/data`.
@@ -154,22 +154,22 @@ persists in the `appdata` named volume at `/data`.
 
 The schema is applied automatically on server start; seeding is separate.
 
-- **Admin user** (any environment) — reads `ADMIN_SEED_PASSWORD`:
+- **Admin user** (any environment) - reads `ADMIN_SEED_PASSWORD`:
   ```powershell
   # Local
   $env:ADMIN_SEED_PASSWORD = "your-strong-password"; go run ./cmd/migrate seed
   # Docker (dev stack)
   docker compose run --rm api go run ./cmd/migrate seed
-  # Docker (prod stack — the migrate binary is baked into the image)
+  # Docker (prod stack - the migrate binary is baked into the image)
   docker compose -f docker-compose.yml run --rm api /app/migrate seed
   ```
 
-- **Demo content** (users, categories, tags, 10–20 posts; **dev/test only** — it
+- **Demo content** (users, categories, tags, 10–20 posts; **dev/test only** - it
   refuses to run under `GO_ENV=prod` without `-force`):
   ```powershell
   # Local
   go run ./cmd/migrate seed-demo -reset
-  # Docker (dev stack — uses the bind-mounted source via `go run`)
+  # Docker (dev stack - uses the bind-mounted source via `go run`)
   docker compose run --rm api go run ./cmd/migrate seed-demo --reset
   ```
   `-reset` wipes existing demo content (keeping the admin, RBAC rows, and the
@@ -183,7 +183,7 @@ The schema is applied automatically on server start; seeding is separate.
 | `http://localhost:5173` | The React app with HMR (Docker dev stack, or local `npm run dev`). |
 | `http://localhost:8080` | The API; also the full app when the SPA is built/embedded (local + Docker dev). |
 | `http://localhost:8080` | The API + embedded SPA (Docker production-like stack). |
-| `…/docs` | Swagger UI. `…/openapi.yaml` · `…/openapi.json` — the spec. |
+| `…/docs` | Swagger UI. `…/openapi.yaml` · `…/openapi.json` - the spec. |
 
 ---
 
@@ -194,22 +194,22 @@ All config is environment-driven; `.env` and `.env.test` are loaded automaticall
 | Variable | Default | Notes |
 |---|---|---|
 | `PORT` | `8080` | TCP port the server listens on. |
-| `DB_STRING` | `""` | SQLite file path (e.g. `vault.db`). Empty surfaces a misleading error on first query — set it. |
-| `JWT_SECRET` | `""` | HMAC key for access tokens. **The API server refuses to start unless this is set to ≥ 32 bytes** (HS256 needs that much entropy). Generate one with e.g. `openssl rand -base64 48`. The migrate CLI does not enforce this — it only needs `DB_STRING`. |
+| `DB_STRING` | `""` | SQLite file path (e.g. `vault.db`). Empty surfaces a misleading error on first query - set it. |
+| `JWT_SECRET` | `""` | HMAC key for access tokens. **The API server refuses to start unless this is set to ≥ 32 bytes** (HS256 needs that much entropy). Generate one with e.g. `openssl rand -base64 48`. The migrate CLI does not enforce this - it only needs `DB_STRING`. |
 | `JWT_ACCESS_TTL` | `15m` | `time.ParseDuration` syntax. |
 | `JWT_REFRESH_TTL` | `168h` (7d) | `time.ParseDuration` syntax. |
 | `JWT_ISSUER` | `micro-blog` | Written into the `iss` claim on every access token and verified on parse. Different envs should use different values to prevent cross-env token replay. |
 | `JWT_AUDIENCE` | `micro-blog-api` | Written into the `aud` claim and verified on parse. |
 | `COOKIE_SECURE` | `true` | Set to `false` for local non-HTTPS dev so the refresh cookie is actually sent. |
 | `UPLOADS_DIR` | `./uploads` | Directory where featured images + variants are written and served from. The Docker stacks point it at the `/data` volume (`/data/uploads`). |
-| `GO_ENV` | `prod` | `dev` or `prod` — controls goose verbosity at server startup and is stamped on the startup log line. Default `prod` is fail-safe: production deploys can omit the var, while local `.env` sets `dev` so migration output is verbose. Anything other than `dev` / `prod` is rejected by `ValidateForServer`. |
-| `ADMIN_SEED_PASSWORD` | _required_ | Read by `go run ./cmd/migrate seed`. The subcommand exits with an error if unset — no `changeme` fallback. |
+| `GO_ENV` | `prod` | `dev` or `prod` - controls goose verbosity at server startup and is stamped on the startup log line. Default `prod` is fail-safe: production deploys can omit the var, while local `.env` sets `dev` so migration output is verbose. Anything other than `dev` / `prod` is rejected by `ValidateForServer`. |
+| `ADMIN_SEED_PASSWORD` | _required_ | Read by `go run ./cmd/migrate seed`. The subcommand exits with an error if unset - no `changeme` fallback. |
 
 ---
 
 ## Project structure
 
-The `internal/api/{handlers,middleware,repository}` trees are split by feature (or by mechanism, for middleware). No god-struct aggregator — each handler `Service` and each `Repo` is its own type, and the entrypoint wires only the deps each service actually needs.
+The `internal/api/{handlers,middleware,repository}` trees are split by feature (or by mechanism, for middleware). No god-struct aggregator - each handler `Service` and each `Repo` is its own type, and the entrypoint wires only the deps each service actually needs.
 
 ```
 .
@@ -221,7 +221,7 @@ The `internal/api/{handlers,middleware,repository}` trees are split by feature (
 │   ├── embed.go                          # //go:embed migrate/migrations/*.sql
 │   ├── migrate/                          # goose CLI + seed / seed-demo subcommands
 │   │   ├── main.go
-│   │   ├── seed_demo.go                  # `seed-demo` — demo fixtures via gofakeit (dev/test)
+│   │   ├── seed_demo.go                  # `seed-demo` - demo fixtures via gofakeit (dev/test)
 │   │   └── migrations/                   # 0000{1..10}*.sql
 │   └── server/main.go                    # entrypoint: wires repos, services, middleware, router
 ├── internal/
@@ -236,7 +236,7 @@ The `internal/api/{handlers,middleware,repository}` trees are split by feature (
 │   │   │   ├── categories/               # public GET /categories + admin/editor CRUD
 │   │   │   ├── tags/                     # public GET /tags + admin/editor CRUD
 │   │   │   ├── docs/                     # /openapi.{yaml,json} + Swagger UI at /docs
-│   │   │   ├── uploads/                  # GET /uploads/* — static featured-image serving
+│   │   │   ├── uploads/                  # GET /uploads/* - static featured-image serving
 │   │   │   └── ui/                      # serves the embedded React SPA UI (index + NotFound fallback)
 │   │   ├── middleware/
 │   │   │   ├── auth/                     # Authenticate (Bearer → *auth.Claims in context)
@@ -283,7 +283,7 @@ The `internal/api/{handlers,middleware,repository}` trees are split by feature (
 
 ## API surface (high-level)
 
-The full route map with request/response shapes is in `api/openapi.yaml` — use `GET /docs`.
+The full route map with request/response shapes is in `api/openapi.yaml` - use `GET /docs`.
 
 | Group | Routes | Auth |
 |---|---|---|
@@ -314,14 +314,14 @@ The full route map with request/response shapes is in `api/openapi.yaml` — use
 
 ### Using URL shortener
 - `POST /api/shortlinks` saves a long URL; the row's auto-incrementing id is encoded with **sqids** into a short opaque code (`X7bL9q`-style).
-- `GET /s/{code}` resolves anonymously: the code is decoded back to the id and the response 302-redirects to the stored URL. No separate UPDATE query — the code is derived from the id, not stored.
+- `GET /s/{code}` resolves anonymously: the code is decoded back to the id and the response 302-redirects to the stored URL. No separate UPDATE query - the code is derived from the id, not stored.
 - `GET /api/shortlinks` is role-filtered (Admin sees all; everyone else sees own).
 - PUT/DELETE are bouncer-gated on `shortlink:edit` / `shortlink:delete` (Editor/Author scoped to own).
 
-### Adding a new endpoint — workflow
+### Adding a new endpoint - workflow
 1. Add the handler + repository method (or wire the new route in `routes.go`).
 2. Add the matching operation under `paths:` in `api/openapi.yaml`.
-3. Run the test suite — the drift test `TestOpenAPISpecCoversEveryRoute` fails loud if the spec entry is missing.
+3. Run the test suite - the drift test `TestOpenAPISpecCoversEveryRoute` fails loud if the spec entry is missing.
 
 ---
 
@@ -330,11 +330,11 @@ The full route map with request/response shapes is in `api/openapi.yaml` — use
 The test suite is integration-heavy: most tests stand up a real router, the real auth chain, and a shared SQLite test database.
 
 ```powershell
-# All tests — must serialize with -p 1 because every test binary opens the
+# All tests - must serialize with -p 1 because every test binary opens the
 # same vault_test.db.
 go test -p 1 ./...
 
-# A single package (no -p needed — only one binary)
+# A single package (no -p needed - only one binary)
 go test ./internal/api/handlers/posts
 go test ./internal/api/repository/users
 
