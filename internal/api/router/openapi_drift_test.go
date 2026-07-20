@@ -12,8 +12,10 @@ import (
 	"github.com/vpramatarov/micro-blog/api"
 	authh "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	categoriesh "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
+	commentsh "github.com/vpramatarov/micro-blog/internal/api/handlers/comments"
 	docsh "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postsh "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	settingsh "github.com/vpramatarov/micro-blog/internal/api/handlers/settings"
 	shortlinksh "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	tagsh "github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	usersh "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
@@ -21,23 +23,26 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/config"
 )
 
-// buildRouter constructs the real chi tree with nil deps everywhere — we only
+// buildRouter constructs the real chi tree with nil deps everywhere - we only
 // need the routing topology, not the ability to handle requests. After the
 // handlers/repository split, no single constructor wires everything; the
 // drift test recreates the same wiring main.go does in miniature.
 func buildRouter() *chi.Mux {
 	authSvc := authh.New(&config.Config{}, nil, nil, nil, nil)
 	usersSvc := usersh.New(&config.Config{}, nil, nil, nil)
-	postsSvc := postsh.New(nil, nil, nil, nil, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil, nil, nil, nil, nil)
 	shortlinksSvc := shortlinksh.New(nil, nil, nil)
 	docsSvc := docsh.New(nil, nil)
 	categoriesSvc := categoriesh.New(nil, nil)
 	tagsSvc := tagsh.New(nil, nil)
+	commentsSvc := commentsh.New(nil, nil, nil, nil)
+	settingsSvc := settingsh.New(nil, nil)
 	return router.New(
 		router.Services{
 			Auth: authSvc, Users: usersSvc, Posts: postsSvc,
 			ShortLinks: shortlinksSvc, Docs: docsSvc,
 			Categories: categoriesSvc, Tags: tagsSvc,
+			Comments: commentsSvc, Settings: settingsSvc,
 		},
 		router.Middlewares{},
 	)
@@ -48,7 +53,7 @@ func buildRouter() *chi.Mux {
 // route without a matching spec entry fails this test, which is the whole reason hand-writing the spec is viable.
 //
 // The reverse direction (spec entries with no matching route) is intentionally
-// not asserted — the spec can legitimately describe deprecated paths during a transition.
+// not asserted - the spec can legitimately describe deprecated paths during a transition.
 func TestOpenAPISpecCoversEveryRoute(t *testing.T) {
 	r := buildRouter()
 
@@ -143,13 +148,14 @@ func TestOpenAPIOperationsHaveValidRoles(t *testing.T) {
 
 // TestOpenAPIFilteredVariantsMatchExpected pins which operations are visible
 // to each audience. Adding a route with role-restricted access requires
-// updating both the spec annotation and this expectation table — keeping the
+// updating both the spec annotation and this expectation table - keeping the
 // role classification a deliberate decision instead of a default-fallthrough.
 func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 	// Operations everyone can see (public + cookie-auth + docs).
 	public := []string{
 		"GET /",
 		"GET /posts",
+		"GET /posts/{slug}/comments",
 		"GET /search",
 		"GET /posts/{slug}",
 		"GET /p/{code}",
@@ -174,8 +180,10 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		"GET /admin/posts",
 		"GET /admin/categories/{slug}",
 		"GET /admin/tags/{slug}",
+		"POST /api/posts/{id}/comments",
+		"DELETE /api/comments/{id}",
 	)
-	// Plus post + shortlink writes — Authors and above. (Author and Editor
+	// Plus post + shortlink writes - Authors and above. (Author and Editor
 	// used to share a tier; they diverge here because category/tag writes are Editor-and-above only.)
 	author := append(append([]string{}, anyAuth...),
 		"POST /api/shortlinks",
@@ -193,6 +201,8 @@ func TestOpenAPIFilteredVariantsMatchExpected(t *testing.T) {
 		"POST /admin/tags",
 		"PUT /admin/tags/{id}",
 		"DELETE /admin/tags/{id}",
+		"GET /admin/settings/comments",
+		"PUT /admin/settings/comments",
 	)
 	// Plus admin-only (numeric-id post read + user CRUD).
 	admin := append(append([]string{}, editor...),

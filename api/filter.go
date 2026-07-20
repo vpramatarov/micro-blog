@@ -10,7 +10,7 @@ import (
 // filterByRole returns a copy of the spec with every operation whose x-roles
 // list excludes `role` removed. Paths that end up with no operations are
 // dropped entirely so Swagger UI doesn't render empty groups. Operations with
-// no x-roles annotation are kept (safe default for incremental adoption — the
+// no x-roles annotation are kept (safe default for incremental adoption - the
 // drift test asserts every operation IS annotated).
 func filterByRole(src []byte, role string) ([]byte, error) {
 	var doc map[string]any

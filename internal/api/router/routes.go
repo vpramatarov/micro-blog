@@ -7,8 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/comments"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	"github.com/vpramatarov/micro-blog/internal/api/handlers/settings"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	"github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	uiHandler "github.com/vpramatarov/micro-blog/internal/api/handlers/ui"
@@ -18,7 +20,7 @@ import (
 )
 
 // Services bundles the per-feature handler services the router mounts. Every
-// field is a concrete pointer — the router calls method names directly, so
+// field is a concrete pointer - the router calls method names directly, so
 // nil is only acceptable on services whose routes are not exercised by the
 // caller (tests that, e.g., only hit /docs may pass nil for the others).
 type Services struct {
@@ -29,6 +31,8 @@ type Services struct {
 	Categories  *categories.Service
 	Tags        *tags.Service
 	Docs        *docs.Service
+	Comments    *comments.Service
+	Settings    *settings.Service
 	UploadsRoot string
 	// SPA is the embedded React build (rooted at the dist directory).
 	// When non-nil the router serves index.html at "/" and uses an SPA-aware NotFound handler for client-side routes + static assets.
@@ -38,7 +42,7 @@ type Services struct {
 
 // Middlewares bundles the route-scoped middleware the router needs to mount on
 // specific groups, plus the global chain that runs on every request. Each of
-// Auth / Bouncer / RequireAdmin may be nil — the router skips a nil entry,
+// Auth / Bouncer / RequireAdmin may be nil - the router skips a nil entry,
 // which lets tests opt out of middleware they don't care about.
 type Middlewares struct {
 	// Auth gates /api/* and /admin/*. Parses the Bearer token and injects claims into the request context.
@@ -50,7 +54,7 @@ type Middlewares struct {
 	// RequireAdmin is the simpler hard-role gate used by the Admin-only subtree (/admin/post/{id}, /admin/users/*).
 	RequireAdmin func(http.Handler) http.Handler
 
-	// RequireEditorOrAdmin permits the Admin + Editor roles. Used by the /admin/categories and /admin/tags write groups —
+	// RequireEditorOrAdmin permits the Admin + Editor roles. Used by the /admin/categories and /admin/tags write groups -
 	// they have no ownership concept, so the Bouncer matrix is not the right gate.
 	RequireEditorOrAdmin func(http.Handler) http.Handler
 
@@ -66,27 +70,30 @@ type Middlewares struct {
 }
 
 // Route groups:
-//   - /                                 public — Home
-//   - GET /posts                        public — list posts (every response item carries a hashid `code` AND a `slug`)
-//   - GET /search                       public — search published posts by title, author or content (?q=)
-//   - GET /posts/{slug}                 public — read a post by its auto-generated slug
-//   - GET /p/{code}                     public — read a post by its sqids hashid (was /posts/{code} pre-categories)
-//   - GET /s/{code}                     public — URL-shortener resolution; 302 to same-origin targets, HTML interstitial for external hosts
+//   - /                                 public - Home
+//   - GET /posts                        public - list posts (every response item carries a hashid `code` AND a `slug`)
+//   - GET /search                       public - search published posts by title, author or content (?q=)
+//   - GET /posts/{slug}                 public - read a post by its auto-generated slug
+//   - GET /p/{code}                     public - read a post by its sqids hashid (was /posts/{code} pre-categories)
+//   - GET /s/{code}                     public - URL-shortener resolution; 302 to same-origin targets, HTML interstitial for external hosts
 //   - GET /categories,
 //     GET /categories/{slug},
 //     GET /tags,
-//     GET /tags/{slug}                  public — taxonomy listings + posts-by-pivot
-//   - GET /uploads/*                    public — static file serving for post featured images and variants
+//     GET /tags/{slug}                  public - taxonomy listings + posts-by-pivot
+//   - GET /posts/{slug}/comments        public - paginated top-level comments (replies embedded per comment)
+//   - GET /uploads/*                    public - static file serving for post featured images and variants
 //   - GET /openapi.yaml,
 //     GET /openapi.json,
-//     GET /docs                         public — OpenAPI spec + Swagger UI
-//   - /auth/*                           public — register / login / refresh / logout
+//     GET /docs                         public - OpenAPI spec + Swagger UI
+//   - /auth/*                           public - register / login / refresh / logout
 //   - /api/*                            authenticated
 //   - GET  /api/me, PUT /api/me                 self-service profile (no role gate, no bouncer)
 //   - GET  /api/shortlinks                      handler-filtered list (Admin: all; others: own)
 //   - POST   /api/shortlinks,
 //     PUT    /api/shortlinks/{id},
 //     DELETE /api/shortlinks/{id}               bouncer-gated by shortlink:create/edit/delete
+//   - POST   /api/posts/{id}/comments           any authenticated role; published posts with commenting enabled only
+//   - DELETE /api/comments/{id}                 handler-level authz: post author / Editor / Admin (NOT the comment owner)
 //   - /admin/*                          authenticated; sub-policies below
 //   - GET /admin/posts,
 //     GET /admin/categories/{slug},
@@ -100,12 +107,14 @@ type Middlewares struct {
 //     POST   /admin/tags,
 //     PUT    /admin/tags/{id},
 //     DELETE /admin/tags/{id}       Admin + Editor only (RequireEditorOrAdmin)
-//   - GET /admin/post/{id}          Admin role only — numeric-id read
+//   - GET /admin/post/{id}          Admin role only - numeric-id read
 //   - GET    /admin/users,
 //     GET    /admin/users/{id},
 //     POST   /admin/users,
 //     PUT    /admin/users/{id},
-//     DELETE /admin/users/{id}      Admin role only — user CRUD
+//     DELETE /admin/users/{id}      Admin role only - user CRUD
+//     GET    /admin/settings/comments,
+//     PUT    /admin/settings/comments  Admin + Editor only (RequireEditorOrAdmin); the settings pair is the global comments kill-switch
 func New(srvc Services, mw Middlewares) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -122,12 +131,13 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 		r.Get("/", home)
 	}
 
-	// Public post reads — no auth. Read-by-id is intentionally absent here;
+	// Public post reads - no auth. Read-by-id is intentionally absent here;
 	// only the hashid-encoded `{code}` route exists publicly.
 	r.Get("/posts", srvc.Posts.List)
 	r.Get("/search", srvc.Posts.Search)
 	r.Get("/p/{code}", srvc.Posts.GetByCode)
 	r.Get("/posts/{slug}", srvc.Posts.GetBySlug)
+	r.Get("/posts/{slug}/comments", srvc.Comments.ListBySlug)
 	// Public URL-shortener resolution. Decodes the hashid back to a row and 302-redirects to the original URL.
 	r.Get("/s/{code}", srvc.ShortLinks.Resolve)
 
@@ -176,12 +186,15 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Use(mw.Auth)
 		}
 
-		// Self-service profile — any authenticated user acts on their own row.
+		r.Post("/posts/{id}/comments", srvc.Comments.Create)
+		r.Delete("/comments/{id}", srvc.Comments.Delete)
+
+		// Self-service profile - any authenticated user acts on their own row.
 		// Not bouncer-gated; the caller's id comes from the JWT, never from a URL param, so there's no scope check to perform.
 		r.Get("/me", srvc.Users.GetMe)
 		r.Put("/me", srvc.Users.UpdateMe)
 
-		// Short-link list — handler-filtered (Admin sees all, everyone else  sees only their own).
+		// Short-link list - handler-filtered (Admin sees all, everyone else  sees only their own).
 		// Lives outside the bouncer subgroup because the filter is role-based at the handler, not matrix-gated.
 		r.Get("/shortlinks", srvc.ShortLinks.List)
 
@@ -208,7 +221,7 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 		r.Get("/categories/{slug}", srvc.Posts.ListByCategorySlugAdmin)
 		r.Get("/tags/{slug}", srvc.Posts.ListByTagSlugAdmin)
 
-		// Post writes — bouncer enforces post:create / post:edit / post:delete
+		// Post writes - bouncer enforces post:create / post:edit / post:delete
 		// against the role's scope. Authors can only act on their own posts;
 		// Admin/Editor act on all; Subscriber is denied.
 		r.Group(func(r chi.Router) {
@@ -221,11 +234,15 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Delete("/posts/{id}", srvc.Posts.Delete)
 		})
 
-		// Categories / tags writes — Admin + Editor only. No ownership, so the Bouncer matrix is not the right gate; a flat role list is.
+		// Categories / tags writes - Admin + Editor only. No ownership, so the Bouncer matrix is not the right gate; a flat role list is.
 		r.Group(func(r chi.Router) {
 			if mw.RequireEditorOrAdmin != nil {
 				r.Use(mw.RequireEditorOrAdmin)
 			}
+
+			// comments
+			r.Get("/settings/comments", srvc.Settings.GetCommentsSetting)
+			r.Put("/settings/comments", srvc.Settings.UpdateCommentsSetting)
 
 			// categories
 			r.Post("/categories", srvc.Categories.Create)
@@ -237,7 +254,7 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 			r.Delete("/tags/{id}", srvc.Tags.Delete)
 		})
 
-		// Admin-only subtree — by-id post read and user CRUD. Role and permission management will mount here too.
+		// Admin-only subtree - by-id post read and user CRUD. Role and permission management will mount here too.
 		r.Group(func(r chi.Router) {
 			if mw.RequireAdmin != nil {
 				r.Use(mw.RequireAdmin)
@@ -262,7 +279,7 @@ func New(srvc Services, mw Middlewares) *chi.Mux {
 	return r
 }
 
-// home returns an empty JSON object — historically used by uptime checkers to
+// home returns an empty JSON object - historically used by uptime checkers to
 // verify the server is reachable. Bodyless 200s confuse some tooling, so we keep returning `{}`.
 func home(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, struct{}{})
