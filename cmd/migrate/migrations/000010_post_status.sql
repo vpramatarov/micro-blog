@@ -1,5 +1,5 @@
 -- +goose Up
--- posts.status — gates visibility:
+-- posts.status - gates visibility:
 --  - "draft"
 --  - "published"
 --  - "archived"

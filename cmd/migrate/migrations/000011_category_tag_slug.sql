@@ -1,11 +1,11 @@
 -- +goose Up
--- categories.slug — auto-generated server-side from the title via internal/slug.
+-- categories.slug - auto-generated server-side from the title via internal/slug.
 -- uses repo.FindAvailableSlug to pick an available variant before insert.
 ALTER TABLE categories ADD COLUMN slug TEXT NOT NULL DEFAULT '';
 UPDATE categories SET slug = 'category-' || id WHERE slug = '';
 UPDATE categories SET slug = 'uncategorized' WHERE id = 1;
 
--- tags.slug — auto-generated server-side from the title via internal/slug.
+-- tags.slug - auto-generated server-side from the title via internal/slug.
 -- uses repo.FindAvailableSlug to pick an available variant before insert.
 ALTER TABLE tags ADD COLUMN slug TEXT NOT NULL DEFAULT '';
 UPDATE tags SET slug = 'tag-' || id WHERE slug = '';

@@ -18,8 +18,10 @@ import (
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
 	categoryService "github.com/vpramatarov/micro-blog/internal/api/handlers/categories"
+	commentsService "github.com/vpramatarov/micro-blog/internal/api/handlers/comments"
 	docsService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
 	postService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	settingsService "github.com/vpramatarov/micro-blog/internal/api/handlers/settings"
 	shortLinkService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	tagService "github.com/vpramatarov/micro-blog/internal/api/handlers/tags"
 	userService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
@@ -29,9 +31,11 @@ import (
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
 	securityMW "github.com/vpramatarov/micro-blog/internal/api/middleware/security"
 	categoriesRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
+	commentsRepository "github.com/vpramatarov/micro-blog/internal/api/repository/comments"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
+	settingsRepository "github.com/vpramatarov/micro-blog/internal/api/repository/settings"
 	shortLinksRepository "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
 	tagRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
@@ -87,6 +91,8 @@ func main() {
 	shortLinksRepo := shortLinksRepository.New(db)
 	categoriesRepo := categoriesRepository.New(db)
 	tagsRepo := tagRepository.New(db)
+	settingsRepo := settingsRepository.New(db)
+	commentsRepo := commentsRepository.New(db)
 	jobsRepo := jobs.New(db)
 	storage := uploads.New(cfg.UploadsDir)
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{
@@ -98,7 +104,7 @@ func main() {
 		log.Fatalf("init shortcode encoder: %v", err)
 	}
 
-	// Embedded React build (dist). Fatal on error — a server binary always ships the UI; a broken embed is a build-time mistake.
+	// Embedded React build (dist). Fatal on error - a server binary always ships the UI; a broken embed is a build-time mistake.
 	uiFS, err := web.Dist()
 	if err != nil {
 		log.Fatalf("load embedded frontend: %v", err)
@@ -106,13 +112,15 @@ func main() {
 
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, logger)
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, logger)
-	postsSrvc := postService.New(postsRepo, categoriesRepo, tagsRepo, storage, jobsRepo, encoder, logger)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, tagsRepo, settingsRepo, storage, jobsRepo, encoder, logger)
 	docsSrvc := docsService.New(issuer, logger)
 	shortLinksSrvc := shortLinkService.New(shortLinksRepo, encoder, logger)
 	categorySrvc := categoryService.New(categoriesRepo, logger)
 	tagSrvc := tagService.New(tagsRepo, logger)
+	commentsSrvc := commentsService.New(commentsRepo, postsRepo, settingsRepo, logger)
+	settingsSrvc := settingsService.New(settingsRepo, logger)
 
-	// Job worker — recovers any stuck 'running' rows from a previous crash, then polls forever.
+	// Job worker - recovers any stuck 'running' rows from a previous crash, then polls forever.
 	// The worker's context is the same SIGINT/SIGTERM context the HTTP server uses, so Ctrl+C stops both cleanly.
 	if n, err := jobsRepo.ResetStuckRunning(ctx); err != nil {
 		logger.Warn("reset stuck jobs", "err", err)
@@ -149,6 +157,8 @@ func main() {
 			Categories:  categorySrvc,
 			Tags:        tagSrvc,
 			Docs:        docsSrvc,
+			Comments:    commentsSrvc,
+			Settings:    settingsSrvc,
 			UI:          uiFS,
 			UploadsRoot: cfg.UploadsDir,
 		},

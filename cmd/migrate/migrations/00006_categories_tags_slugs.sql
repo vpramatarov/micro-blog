@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS post_tags (
 
 CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag_id);
 
--- posts.category_id — required, defaults to 1 ('Uncategorized') so existing
+-- posts.category_id - required, defaults to 1 ('Uncategorized') so existing
 -- rows backfill cleanly. ON DELETE RESTRICT means deleting a category with
 -- attached posts is refused at the SQL layer; the handler surfaces this as a 409 category_in_use.
 ALTER TABLE posts ADD COLUMN category_id INTEGER NOT NULL DEFAULT 1 REFERENCES categories(id) ON DELETE RESTRICT;
 CREATE INDEX IF NOT EXISTS idx_posts_category ON posts(category_id);
 
--- posts.slug — auto-generated server-side from the title via internal/slug.
+-- posts.slug - auto-generated server-side from the title via internal/slug.
 -- Backfilled to 'post-<id>' for any rows that existed before this migration
 -- (covers test/dev DBs; production deployments at v0.1 had no posts yet).
 -- UNIQUE index is the source of truth for collision detection; the handler
