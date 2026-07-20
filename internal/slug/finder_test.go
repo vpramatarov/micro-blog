@@ -10,7 +10,7 @@ import (
 )
 
 // TestMain runs once per binary. The Generate-side tests in slug_test.go don't touch the DB;
-// the Finder tests below do, so we set up the test schema unconditionally — idempotent thanks to testutil's sync.Once gate.
+// the Finder tests below do, so we set up the test schema unconditionally - idempotent thanks to testutil's sync.Once gate.
 func TestMain(m *testing.M) {
 	if err := testutil.EnsureTestSchema(); err != nil {
 		fmt.Fprintf(os.Stderr, "prepare test schema: %v\n", err)
@@ -63,7 +63,7 @@ func TestFinderGenerate_Posts(t *testing.T) {
 	}
 
 	// excludeID=1 means row id=1 ('hello-world') is invisible to the
-	// scanner — base becomes free again. This is the update path.
+	// scanner - base becomes free again. This is the update path.
 	got, err = f.Generate(ctx, "hello-world", 1)
 	if err != nil || got != "hello-world" {
 		t.Fatalf("excludeID: got %q (%v), want hello-world (own row excluded)", got, err)
@@ -92,7 +92,7 @@ func TestFinderGenerate_Categories(t *testing.T) {
 	}
 }
 
-// TestFinderGenerate_Tags — same smoke test for the tags table.
+// TestFinderGenerate_Tags - same smoke test for the tags table.
 func TestFinderGenerate_Tags(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 	f := slug.NewFinder(db, slug.TableTags)

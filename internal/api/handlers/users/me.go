@@ -11,7 +11,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
-// meUpdateRequest is intentionally narrower than userUpdateRequest —
+// meUpdateRequest is intentionally narrower than userUpdateRequest -
 // it has no role_id so a Subscriber can't promote themselves and no Admin can demote themselves through the self-service path.
 type meUpdateRequest struct {
 	Username *string `json:"username"`
@@ -19,7 +19,7 @@ type meUpdateRequest struct {
 	Password *string `json:"password"`
 }
 
-// GetMe — GET /api/me. Any authenticated user. Returns the caller's own row.
+// GetMe - GET /api/me. Any authenticated user. Returns the caller's own row.
 func (s *Service) GetMe(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -30,7 +30,7 @@ func (s *Service) GetMe(w http.ResponseWriter, r *http.Request) {
 	user, err := s.Users.GetByID(r.Context(), claims.UserID)
 	if err != nil {
 		if errors.Is(err, usersrepo.ErrUserNotFound) {
-			// Token outlived the user — treat as a fresh-auth-needed signal.
+			// Token outlived the user - treat as a fresh-auth-needed signal.
 			httpx.WriteError(w, http.StatusUnauthorized, "user_not_found", "user no longer exists")
 			return
 		}
@@ -43,7 +43,7 @@ func (s *Service) GetMe(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
-// UpdateMe — PUT /api/me. Any authenticated user.
+// UpdateMe - PUT /api/me. Any authenticated user.
 // Partial update of username / email / password on the caller's own row.
 // role_id is ignored even if supplied so callers cannot escalate.
 func (s *Service) UpdateMe(w http.ResponseWriter, r *http.Request) {

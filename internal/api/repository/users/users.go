@@ -42,7 +42,7 @@ type Repo struct {
 	db *sql.DB
 }
 
-// New constructs a Repo. It does not own the connection lifecycle — the caller
+// New constructs a Repo. It does not own the connection lifecycle - the caller
 // (cmd/server/main.go) keeps responsibility for sql.Open / db.Close.
 func New(db *sql.DB) *Repo {
 	return &Repo{db: db}
@@ -158,7 +158,7 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 // exists at id, and ErrUserDuplicate if the update would collide on
 // username/email. Pre-checks existence because SQLite's RowsAffected on
 // UPDATE counts only rows that actually changed, so a no-op update on an
-// existing row reports 0 — indistinguishable from a missing user without
+// existing row reports 0 - indistinguishable from a missing user without
 // the pre-check.
 func (r *Repo) Update(ctx context.Context, id int64, u UserUpdate) error {
 	if _, err := r.GetByID(ctx, id); err != nil {

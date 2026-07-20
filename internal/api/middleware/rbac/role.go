@@ -40,7 +40,7 @@ func RequireRole(role string, log *slog.Logger) func(http.Handler) http.Handler 
 	}
 }
 
-// RequireAnyRole is the variadic sibling of RequireRole — denies any request whose claims.Role
+// RequireAnyRole is the variadic sibling of RequireRole - denies any request whose claims.Role
 // is not in the allow list. Used for resources that don't fit the Bouncer matrix (no ownership concept) but still need finer-grained
 // access than just "any authenticated user". Today: /admin/categories and /admin/tags writes (Admin + Editor only).
 func RequireAnyRole(log *slog.Logger, roles ...string) func(http.Handler) http.Handler {

@@ -57,7 +57,7 @@ func TestRequestLoggerCapturesDefaultStatus(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
 
-	// Handler that writes the body but never explicitly calls WriteHeader — the wrapper should report 200 (Go's implicit default).
+	// Handler that writes the body but never explicitly calls WriteHeader - the wrapper should report 200 (Go's implicit default).
 	h := observability.RequestLogger(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))

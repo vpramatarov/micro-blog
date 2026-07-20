@@ -1,5 +1,5 @@
 // Package uploads owns the disk layout for user-uploaded files (post featured images)
-// All paths returned by this package are RELATIVE to the configured root directory —
+// All paths returned by this package are RELATIVE to the configured root directory -
 // the value stored in the DB and the value served back through /uploads/{path} static routing.
 package uploads
 
@@ -37,7 +37,7 @@ func (s *Storage) Root() string {
 }
 
 // SaveOriginal writes data under root/YYYY/MM/DD/<sanitized-name><ext>.
-// The returned relPath uses forward slashes (matching URL conventions) regardless of OS — "2026/02/03/foo.jpg".
+// The returned relPath uses forward slashes (matching URL conventions) regardless of OS - "2026/02/03/foo.jpg".
 func (s *Storage) SaveOriginal(today time.Time, uploadedName, ext string, data []byte) (relativePath string, err error) {
 	if ext != ".jpg" && ext != ".png" {
 		return "", fmt.Errorf("uploads: unexpected ext %q (expected .jpg or .png)", ext)
@@ -74,7 +74,7 @@ func (s *Storage) SaveOriginal(today time.Time, uploadedName, ext string, data [
 		if !errors.Is(openErr, os.ErrExist) {
 			return "", fmt.Errorf("uploads: open %q: %w", full, openErr)
 		}
-		// Collision — bump the suffix and retry.
+		// Collision - bump the suffix and retry.
 	}
 
 	return "", ErrCollisionExhausted
@@ -160,7 +160,7 @@ func (s *Storage) variantPath(relOriginal, sizeSuffix string) string {
 // and falls back to a timestamped name if slug.Generate returns empty (e.g. a filename of only non-Latin/non-digit chars survives nothing).
 func sanitizeBase(uploadedName string, today time.Time) string {
 	name := filepath.Base(uploadedName)
-	// Strip any extension (sanitize the stem only — we know the canonical ext from the image format).
+	// Strip any extension (sanitize the stem only - we know the canonical ext from the image format).
 	if dot := strings.LastIndex(name, "."); dot > 0 {
 		name = name[:dot]
 	}

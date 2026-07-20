@@ -54,7 +54,7 @@ func TestRenderLink(t *testing.T) {
 	mustContain(t, out, `<a href="https://example.com">example</a>`)
 }
 
-// GFM extension — tables.
+// GFM extension - tables.
 func TestRenderTable(t *testing.T) {
 	md := "| a | b |\n|---|---|\n| 1 | 2 |"
 	out := render(t, md)
@@ -63,19 +63,19 @@ func TestRenderTable(t *testing.T) {
 	mustContain(t, out, "<td>1</td>")
 }
 
-// GFM extension — strikethrough.
+// GFM extension - strikethrough.
 func TestRenderStrikethrough(t *testing.T) {
 	out := render(t, "~~gone~~")
 	mustContain(t, out, "<del>gone</del>")
 }
 
-// GFM extension — autolinks.
+// GFM extension - autolinks.
 func TestRenderAutolink(t *testing.T) {
 	out := render(t, "see https://example.com for details")
 	mustContain(t, out, `href="https://example.com"`)
 }
 
-// GFM extension — task lists.
+// GFM extension - task lists.
 func TestRenderTaskList(t *testing.T) {
 	out := render(t, "- [ ] todo\n- [x] done")
 	mustContain(t, out, `<input`)
@@ -96,7 +96,7 @@ func TestRenderEscapesRawDivWithEventHandler(t *testing.T) {
 	mustNotContain(t, out, "onclick")
 }
 
-// Inline HTML inside otherwise valid markdown — also escaped.
+// Inline HTML inside otherwise valid markdown - also escaped.
 func TestRenderEscapesInlineHTMLInsideParagraph(t *testing.T) {
 	out := render(t, `Hello <img src=x onerror="evil()"> world`)
 	mustNotContain(t, out, "<img")

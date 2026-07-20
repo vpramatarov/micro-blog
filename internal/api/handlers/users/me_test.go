@@ -7,11 +7,17 @@ import (
 	"time"
 
 	authService "github.com/vpramatarov/micro-blog/internal/api/handlers/auth"
+	docService "github.com/vpramatarov/micro-blog/internal/api/handlers/docs"
+	postsService "github.com/vpramatarov/micro-blog/internal/api/handlers/posts"
+	shortlinkService "github.com/vpramatarov/micro-blog/internal/api/handlers/shortlinks"
 	usersService "github.com/vpramatarov/micro-blog/internal/api/handlers/users"
 	authMW "github.com/vpramatarov/micro-blog/internal/api/middleware/auth"
 	rbacMW "github.com/vpramatarov/micro-blog/internal/api/middleware/rbac"
+	"github.com/vpramatarov/micro-blog/internal/shortcode"
 
+	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacRepository "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
+	shortlinksRepository "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
 	tokensRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
 	usersRepository "github.com/vpramatarov/micro-blog/internal/api/repository/users"
 	"github.com/vpramatarov/micro-blog/internal/api/router"
@@ -34,6 +40,8 @@ func setupMeEnv(t *testing.T) *meEnv {
 	usersRepo := usersRepository.New(db)
 	tokensRepo := tokensRepository.New(db)
 	rbacRepo := rbacRepository.New(db)
+	postsRepo := postRepository.New(db)
+	shortLinksRepo := shortlinksRepository.New(db)
 	ctx := t.Context()
 
 	seed := map[string]struct {
@@ -65,14 +73,18 @@ func setupMeEnv(t *testing.T) *meEnv {
 
 	cfg := &config.Config{JWTSecret: "test", JWTAccessTTL: 5 * time.Minute, JWTRefreshTTL: time.Hour}
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL, auth.IssuerOptions{})
-
+	encoder, _ := shortcode.New()
 	authSrvc := authService.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSrvc := usersService.New(cfg, usersRepo, rbacRepo, nil)
+	postsSrvc := postsService.New(postsRepo, nil, nil, nil, nil, nil, encoder, nil)
+	shortlinksSrvc := shortlinkService.New(shortLinksRepo, encoder, nil)
+	docsSrvc := docService.New(issuer, nil)
 
 	r := router.New(
-		router.Services{Auth: authSrvc, Users: usersSrvc},
+		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, ShortLinks: shortlinksSrvc, Docs: docsSrvc},
 		router.Middlewares{
 			Auth:         authMW.Authenticate(issuer, nil, nil),
+			Bouncer:      rbacMW.Bouncer(rbacRepo, postsRepo, shortLinksRepo, nil),
 			RequireAdmin: rbacMW.RequireRole("Admin", nil),
 		},
 	)
@@ -150,7 +162,7 @@ func TestUpdateMeSubscriberChangesProfile(t *testing.T) {
 	}
 
 	if err := auth.Verify(persisted.PasswordHash, "originalpw"); err == nil {
-		t.Error("old password still verifies — hash was not replaced")
+		t.Error("old password still verifies - hash was not replaced")
 	}
 }
 

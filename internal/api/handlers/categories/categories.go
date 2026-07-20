@@ -16,7 +16,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
-// Service handles category endpoints. The only repo dependency is the categories table — categories live on their own;
+// Service handles category endpoints. The only repo dependency is the categories table - categories live on their own;
 // the posts.category_id FK is enforced by SQLite, not from here.
 type Service struct {
 	Categories *categoriesRepo.Repo
@@ -52,7 +52,7 @@ func (r *categoryWriteRequest) Validate() validation.Errors {
 	return e
 }
 
-// List — GET /categories. Public. Paginated via ?page / ?per_page.
+// List - GET /categories. Public. Paginated via ?page / ?per_page.
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
 	if !ok {
@@ -78,7 +78,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create — POST /admin/categories. Admin or Editor only (enforced by router-level RequireEditorOrAdmin middleware).
+// Create - POST /admin/categories. Admin or Editor only (enforced by router-level RequireEditorOrAdmin middleware).
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	var req categoryWriteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -125,7 +125,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, cat)
 }
 
-// Update — PUT /admin/categories/{id}. Admin or Editor only.
+// Update - PUT /admin/categories/{id}. Admin or Editor only.
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -189,7 +189,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, cat)
 }
 
-// Delete — DELETE /admin/categories/{id}. Admin or Editor only.
+// Delete - DELETE /admin/categories/{id}. Admin or Editor only.
 // Returns 409 category_in_use when any post still references the row; the FK is ON DELETE RESTRICT.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)

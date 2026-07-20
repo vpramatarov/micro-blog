@@ -11,7 +11,7 @@ import (
 )
 
 // profileFields are the parts of a user update that anyone can change on
-// their own profile (Admin or self-service) — explicitly does NOT include
+// their own profile (Admin or self-service) - explicitly does NOT include
 // role_id. Used by both users.go (admin partial update) and me.go
 // (self-service partial update) so neither path can accidentally leak the
 // role-escalation surface.

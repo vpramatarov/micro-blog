@@ -153,7 +153,7 @@ func (r *Repo) Update(ctx context.Context, id int64, name string, slugStr string
 	return nil
 }
 
-// DeleteTag removes the tag. post_tags rows referencing it cascade away automatically via the FK ON DELETE CASCADE — no in-use error here.
+// DeleteTag removes the tag. post_tags rows referencing it cascade away automatically via the FK ON DELETE CASCADE - no in-use error here.
 func (r *Repo) Delete(ctx context.Context, id int64) error {
 	q := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, DB_TABLE)
 	res, err := r.db.ExecContext(ctx, q, id)
@@ -304,7 +304,7 @@ func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]T
 }
 
 // ReplaceForPost atomically rewrites the join rows for `postID`:  deletes every existing row, then inserts one per tag in `tagIDs`.
-// Idempotent — call with an empty slice to clear the tag set.
+// Idempotent - call with an empty slice to clear the tag set.
 // Wrapped in a transaction so a partial failure leaves the row set unchanged.
 func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -359,10 +359,10 @@ func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64)
 }
 
 // GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
-// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
+// `excludePostID` lets an UPDATE keep its own slug - pass 0 from CreatePost.
 //
 // The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
-// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
+// A concurrent writer can still race us between the SELECT and the INSERT - the UNIQUE index catches that and the handler retries.
 func (r *Repo) GenerateSlug(ctx context.Context, base string, excludeID int64) (string, error) {
 	return r.slugFinder.Generate(ctx, base, excludeID)
 }

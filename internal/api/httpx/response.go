@@ -1,7 +1,7 @@
 // Package httpx is the shared HTTP-layer helper package: JSON response
 // writers, the error envelope, and pagination plumbing. It must not import
 // internal/api/repository, internal/api/middleware, or any other internal
-// package that needs to call back into HTTP behaviour — otherwise import
+// package that needs to call back into HTTP behaviour - otherwise import
 // cycles will form when the feature sub-packages depend on it.
 package httpx
 
@@ -36,7 +36,7 @@ func WriteError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // WriteValidationError serializes per-field validation messages alongside the standard error envelope.
-// Status is 400 and the error code stays `invalid_input` so clients that match on `error` keep working — `fields` is additive.
+// Status is 400 and the error code stays `invalid_input` so clients that match on `error` keep working - `fields` is additive.
 func WriteValidationError(w http.ResponseWriter, fields map[string]string) {
 	_ = WriteJSON(w, http.StatusBadRequest, errorBody{
 		Error:   "invalid_input",
@@ -46,7 +46,7 @@ func WriteValidationError(w http.ResponseWriter, fields map[string]string) {
 }
 
 // writeForbidden emits the minimal {"error":"forbidden"} body. Kept inline (rather than going through httpx.WriteError) so the wire format stays
-// byte-for-byte identical to the pre-split version — clients should not be able to detect the refactor by sniffing 403 response bodies.
+// byte-for-byte identical to the pre-split version - clients should not be able to detect the refactor by sniffing 403 response bodies.
 func WriteForbidden(w http.ResponseWriter) {
 	_ = WriteJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 }

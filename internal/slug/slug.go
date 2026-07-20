@@ -52,7 +52,7 @@ func Generate(title string) string {
 
 // tokenize splits the input into runs of slug-word characters. Punctuation,
 // whitespace, emoji, and any other rune that isn't ASCII alphanumeric or a known Bulgarian Cyrillic letter ends the current token.
-// This keeps "1.26" from collapsing into "126" — the dot acts as a separator.
+// This keeps "1.26" from collapsing into "126" - the dot acts as a separator.
 func tokenize(s string) []string {
 	var (
 		tokens []string
@@ -110,7 +110,7 @@ func transliterateToken(tok string) string {
 		if isSlugWordChar(r) {
 			b.WriteRune(r)
 		}
-		// else: rune is not in the slug alphabet — drop it. tokenize already
+		// else: rune is not in the slug alphabet - drop it. tokenize already
 		// filters most non-slug runes, but a tokenizer/translit mismatch
 		// (e.g. a Cyrillic letter outside bgTranslit) would land here.
 	}

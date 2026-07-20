@@ -1,5 +1,5 @@
 // Package observability holds middleware that exists to make the running
-// server visible to operators — currently the structured access logger.
+// server visible to operators - currently the structured access logger.
 package observability
 
 import (
@@ -16,7 +16,7 @@ import (
 //
 // Fields: method, path, status, bytes, duration_ms, remote_addr, request_id
 // (when chi.RequestID is in the chain). The line uses Info level regardless
-// of status — error handlers already emit their own slog records at
+// of status - error handlers already emit their own slog records at
 // Error/Warn, so we don't duplicate those.
 func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 	if log == nil {

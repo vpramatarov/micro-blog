@@ -1,6 +1,6 @@
 // Package jobs implements a tiny DB-backed job queue + in-process worker.
 // It exists to keep slow work (e.g. image variant generation) off the HTTP
-// request path while still surviving server restarts — pending jobs persist in the `jobs` table.
+// request path while still surviving server restarts - pending jobs persist in the `jobs` table.
 package jobs
 
 import (

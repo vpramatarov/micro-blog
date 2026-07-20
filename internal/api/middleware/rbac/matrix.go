@@ -1,7 +1,7 @@
 // Package rbac holds the role-based access control middleware: Bouncer (which
 // enforces the centralized permission/scope matrix per route) and RequireRole
 // (a simpler hard-role gate used for /admin/users etc.). Both write the same
-// {"error":"forbidden"} envelope on denial — kept terse so callers can't inspect why they were denied.
+// {"error":"forbidden"} envelope on denial - kept terse so callers can't inspect why they were denied.
 package rbac
 
 import (
@@ -21,12 +21,12 @@ type ActionRule struct {
 }
 
 // Matrix keys are "METHOD pattern" where pattern comes from chi's RoutePattern.
-// Routes not in the matrix are not gated by the bouncer — register them under a
+// Routes not in the matrix are not gated by the bouncer - register them under a
 // non-/api prefix or add them here explicitly.
 // Notes on what's NOT in this matrix:
-//   - Public GET /posts, GET /posts/{id} — no auth required at all.
-//   - GET /admin/post/{id} — any authenticated user; gate is just Authenticate.
-//   - /admin/users/*, /admin/roles/*, /admin/permissions/* — gated by
+//   - Public GET /posts, GET /posts/{id} - no auth required at all.
+//   - GET /admin/post/{id} - any authenticated user; gate is just Authenticate.
+//   - /admin/users/*, /admin/roles/*, /admin/permissions/* - gated by
 //     RequireRole("Admin"), not this permission matrix.
 var Matrix = map[string]ActionRule{
 	"POST /admin/posts":           {Permission: "post:create"},

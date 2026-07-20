@@ -96,7 +96,7 @@ func setupBouncerEnv(t *testing.T) bouncerEnv {
 		})
 		// Stand-in route that is NOT in the bouncer matrix and lives outside
 		// the bouncer subgroup. Used to verify the bouncer doesn't gate
-		// routes it doesn't know about — `/unlisted` is deliberately a path
+		// routes it doesn't know about - `/unlisted` is deliberately a path
 		// with no production meaning so the assertion can't be confused with a check on a real endpoint's policy.
 		r.Get("/unlisted/{id}", okHandler)
 	})

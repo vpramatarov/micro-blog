@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// ErrRefreshTokenNotFound is returned when FindRefreshToken cannot match the given hash — either the token never existed or it was rotated/revoked.
+// ErrRefreshTokenNotFound is returned when FindRefreshToken cannot match the given hash - either the token never existed or it was rotated/revoked.
 var ErrRefreshTokenNotFound = errors.New("refresh token not found")
 
 const DB_TABLE string = "refresh_tokens"
@@ -37,7 +37,7 @@ func (r *Repo) Insert(ctx context.Context, userID int64, tokenHash string, expir
 }
 
 // Find returns (user_id, expires_at) for the given token hash.
-// Before the SELECT it sweeps expired rows — refresh tokens accumulate as users log in / out and there's no scheduler in the binary.
+// Before the SELECT it sweeps expired rows - refresh tokens accumulate as users log in / out and there's no scheduler in the binary.
 // Indexed on expires_at by migration 00005 so the purge is O(expired-rows).
 func (r *Repo) FindOneByHash(ctx context.Context, tokenHash string) (userID int64, expiresAt time.Time, err error) {
 	if _, e := r.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE expires_at < ?`, DB_TABLE), time.Now().UTC()); e != nil {

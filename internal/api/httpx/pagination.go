@@ -22,7 +22,7 @@ type Page[T any] struct {
 
 // ParsePagination reads `?page` and `?per_page` query params. Missing or
 // blank values fall back to (1, DefaultPerPage). Non-numeric or non-positive
-// values are rejected as a 400 invalid_pagination — surfaces a clear error
+// values are rejected as a 400 invalid_pagination - surfaces a clear error
 // rather than silently clamping garbage. Per-page is clamped to MaxPerPage.
 // Returns (limit, offset, page, perPage, ok); when ok is false the handler
 // has already written the 400 and must return.

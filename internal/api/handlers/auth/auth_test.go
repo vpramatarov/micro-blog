@@ -64,7 +64,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	usersSrvc := userService.New(cfg, usersRepo, rbacRepo, nil)
 	shortLinksSrvc := shortLinksService.New(slRepo, nil, nil)
 	categoriesSrvc := categoriesService.New(categoriesRepo, nil)
-	postsSrvc := postService.New(postsRepo, categoriesRepo, nil, nil, nil, nil, nil)
+	postsSrvc := postService.New(postsRepo, categoriesRepo, nil, nil, nil, nil, nil, nil)
 	docsSrvc := docsService.New(issuer, nil)
 	r := router.New(
 		router.Services{Auth: authSrvc, Users: usersSrvc, Posts: postsSrvc, Categories: categoriesSrvc, ShortLinks: shortLinksSrvc, Docs: docsSrvc},
@@ -141,7 +141,7 @@ func TestRegisterLoginRefreshLogoutFlow(t *testing.T) {
 		t.Fatal("login did not set refresh_token cookie")
 	}
 
-	// Refresh — should rotate, returning a different cookie value.
+	// Refresh - should rotate, returning a different cookie value.
 	res = postJSON(t, srv, "/auth/refresh", struct{}{}, loginCookie)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("refresh: got %d, want 200", res.StatusCode)

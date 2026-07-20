@@ -59,12 +59,12 @@ func TestEnqueueNotificationsCoalesce(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("expected at least one signal after 5 enqueues")
 	}
-	// No more signals queued — capacity 1 + non-blocking send drops extras.
+	// No more signals queued - capacity 1 + non-blocking send drops extras.
 	select {
 	case <-r.Notifications():
 		t.Error("Notifications fired twice for coalesced enqueues; should be capacity-1")
 	case <-time.After(50 * time.Millisecond):
-		// Good — no second signal.
+		// Good - no second signal.
 	}
 }
 

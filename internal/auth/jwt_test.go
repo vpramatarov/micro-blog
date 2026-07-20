@@ -83,7 +83,7 @@ func TestRefreshTokenHashIsDeterministic(t *testing.T) {
 	}
 
 	if strings.Contains(plain, hash) {
-		t.Fatal("hash appears in plaintext — not expected")
+		t.Fatal("hash appears in plaintext - not expected")
 	}
 
 	if auth.HashRefreshToken(plain) != hash {

@@ -336,7 +336,7 @@ func TestUpdateUserAdmin(t *testing.T) {
 	env := setupUserCrudEnv(t)
 	path := fmt.Sprintf("/admin/users/%d", env.userID["Author"])
 
-	// Partial — only the role.
+	// Partial - only the role.
 	rec := doJSON(t, env.srv, http.MethodPut, path, env.tokens["Admin"], `{"role_id":2}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("role update: got %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -350,7 +350,7 @@ func TestUpdateUserAdmin(t *testing.T) {
 		t.Errorf("partial update altered untouched fields: %+v", got)
 	}
 
-	// Change password — confirm hash now verifies the new password.
+	// Change password - confirm hash now verifies the new password.
 	rec = doJSON(t, env.srv, http.MethodPut, path, env.tokens["Admin"], `{"password":"brandnew1"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("password update: got %d, want 200; body=%s", rec.Code, rec.Body.String())

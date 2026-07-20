@@ -68,7 +68,7 @@ type userUpdateRequest struct {
 	RoleID   *int64  `json:"role_id"`
 }
 
-// List — GET /admin/users. Admin only. Paginated via ?page / ?per_page.
+// List - GET /admin/users. Admin only. Paginated via ?page / ?per_page.
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
 	if !ok {
@@ -94,7 +94,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetUser — GET /admin/users/{id}. Admin only.
+// GetUser - GET /admin/users/{id}. Admin only.
 func (s *Service) GetUser(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -117,7 +117,7 @@ func (s *Service) GetUser(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
-// Create — POST /admin/users. Admin only.
+// Create - POST /admin/users. Admin only.
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	var req userCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -135,7 +135,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Existence check only after the format rules pass — one DB round-trip
+	// Existence check only after the format rules pass - one DB round-trip
 	// we don't pay for malformed input.
 	exists, err := s.RBAC.RoleExists(r.Context(), req.RoleID)
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, user)
 }
 
-// Update — PUT /admin/users/{id}. Admin only. Partial update — any field
+// Update - PUT /admin/users/{id}. Admin only. Partial update - any field
 // omitted from the body is left as-is. Sending `"password"` re-hashes and
 // replaces password_hash; the hash is never echoed in the response.
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
-// Delete — DELETE /admin/users/{id}. Admin only. Refuses self-delete to
+// Delete - DELETE /admin/users/{id}. Admin only. Refuses self-delete to
 // avoid an Admin locking themselves out.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)

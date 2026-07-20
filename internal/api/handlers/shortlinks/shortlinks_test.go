@@ -89,7 +89,7 @@ func setupShortLinkEnv(t *testing.T) *shortLinkEnv {
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
 	categoriesSvc := categoriesh.New(categoriesRepo, nil)
-	postsSvc := postsh.New(postsRepo, categoriesRepo, nil, nil, nil, encoder, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, nil, nil, nil, nil, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	r := router.New(
@@ -386,7 +386,7 @@ func TestResolveShortLinkPublic(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 
-	// Happy path — unauthenticated request, valid code.
+	// Happy path - unauthenticated request, valid code.
 	rec := doJSON(t, env.srv, http.MethodGet, "/s/"+code, "", "")
 	if rec.Code != http.StatusFound {
 		t.Fatalf("resolve: got %d, want 302; body=%s", rec.Code, rec.Body.String())

@@ -61,7 +61,7 @@ func New(shortLinksRepository *shortLinksRepo.Repo, encoder *shortcode.Encoder, 
 	return &Service{ShortLinks: shortLinksRepository, Encoder: encoder, Log: log}
 }
 
-// List — GET /api/shortlinks. Any authenticated user. Admins see every row;
+// List - GET /api/shortlinks. Any authenticated user. Admins see every row;
 // everyone else sees only the rows they own. Subscribers get an empty list (they can't create), which is fine and consistent.
 // Paginated via ?page / ?per_page.
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create — POST /api/shortlinks. Bouncer enforces shortlink:create.
+// Create - POST /api/shortlinks. Bouncer enforces shortlink:create.
 // user_id comes from the caller's claims so the row's owner is always the authenticated user.
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
@@ -142,7 +142,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, link)
 }
 
-// Update — PUT /api/shortlinks/{id}. Bouncer enforces ownership for non-admins (scope='own'); Admin bypasses to scope='all'.
+// Update - PUT /api/shortlinks/{id}. Bouncer enforces ownership for non-admins (scope='own'); Admin bypasses to scope='all'.
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -184,7 +184,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, link)
 }
 
-// Delete — DELETE /api/shortlinks/{id}. Bouncer enforces ownership.
+// Delete - DELETE /api/shortlinks/{id}. Bouncer enforces ownership.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -206,7 +206,7 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Resolve — GET /s/{code}. Fully public. Decodes the hashid, looks
+// Resolve - GET /s/{code}. Fully public. Decodes the hashid, looks
 // up the row, and 302-redirects to the original URL. Bad codes and missing
 // rows both 404 with the same response so the existence of a given id is not leaked.
 func (s *Service) Resolve(w http.ResponseWriter, r *http.Request) {

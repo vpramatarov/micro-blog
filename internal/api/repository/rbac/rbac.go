@@ -32,7 +32,7 @@ func (r *Repo) RoleExists(ctx context.Context, id int64) (bool, error) {
 
 // GetRolePermissionScope returns the scope ('all', 'own', 'none') for a given
 // (role, permission) pair. An empty string means the role has no row for that
-// permission — treat it the same as 'none' at the caller.
+// permission - treat it the same as 'none' at the caller.
 func (r *Repo) GetRolePermissionScope(ctx context.Context, roleID int64, permission string) (string, error) {
 	const q = `
         SELECT rp.scope

@@ -26,7 +26,7 @@ func buildDocsRouter(t *testing.T, issuer *auth.Issuer) http.Handler {
 	cfg := &config.Config{}
 	authSvc := authh.New(cfg, nil, nil, nil, nil)
 	usersSvc := usersh.New(cfg, nil, nil, nil)
-	postsSvc := postsh.New(nil, nil, nil, nil, nil, nil, nil)
+	postsSvc := postsh.New(nil, nil, nil, nil, nil, nil, nil, nil)
 	shortlinksSvc := shortlinksh.New(nil, nil, nil)
 	docsSvc := docsh.New(issuer, nil)
 	return router.New(
@@ -162,7 +162,7 @@ func pathsIn(t *testing.T, raw []byte) map[string]bool {
 }
 
 // TestOpenAPIYAMLAlsoFiltered double-checks the YAML endpoint applies the
-// same filtering. We only need a smoke check — the same code path picks
+// same filtering. We only need a smoke check - the same code path picks
 // between SpecYAMLByRole and SpecJSONByRole, so behavior is symmetric.
 func TestOpenAPIYAMLAlsoFiltered(t *testing.T) {
 	cfg := &config.Config{JWTSecret: "test", JWTAccessTTL: 5 * time.Minute, JWTRefreshTTL: time.Hour}

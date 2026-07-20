@@ -10,7 +10,7 @@ import (
 )
 
 // Authenticate parses the Bearer token, validates it via the issuer.
-// On failure it writes a 401 JSON envelope and short-circuits — downstream handlers can rely on auth.FromContext returning a valid claims pointer.
+// On failure it writes a 401 JSON envelope and short-circuits - downstream handlers can rely on auth.FromContext returning a valid claims pointer.
 // tokens repo may be nil in tests that don't care about revocation.
 func Authenticate(issuer *auth.Issuer, tokensRepo *tokens.Repo, log *slog.Logger) func(http.Handler) http.Handler {
 	if log == nil {

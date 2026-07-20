@@ -26,7 +26,7 @@ func NewVariantsHandler(store *uploads.Storage, log *slog.Logger) func(ctx conte
 	return func(ctx context.Context, payload []byte) error {
 		var p VariantsPayload
 		if err := json.Unmarshal(payload, &p); err != nil {
-			// Malformed payload — retrying won't help; let the worker mark it failed by returning a sentinel-shaped error.
+			// Malformed payload - retrying won't help; let the worker mark it failed by returning a sentinel-shaped error.
 			return fmt.Errorf("imagex: invalid variants payload: %w", err)
 		}
 

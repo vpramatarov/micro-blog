@@ -9,7 +9,7 @@ import (
 
 const DB_TABLE string = "jobs"
 
-// ErrNoJob is what Claim returns when the queue is empty. Not a real error — the worker treats it as "sleep and try again".
+// ErrNoJob is what Claim returns when the queue is empty. Not a real error - the worker treats it as "sleep and try again".
 var ErrNoJob = errors.New("jobs: no pending job")
 
 // Job is the row model of the `jobs` table.
@@ -121,7 +121,7 @@ func (r *Repo) Requeue(ctx context.Context, id int64, errMsg string) error {
 
 // ResetStuckRunning is called once at startup to recover from a worker crash.
 // Any row left in 'running' (which can only happen if the process died between Claim and MarkDone/MarkFailed/Requeue) is flipped back to 'pending'.
-// The attempts counter is preserved — if it's already at the cap, the next handler error sends it to 'failed' as usual.
+// The attempts counter is preserved - if it's already at the cap, the next handler error sends it to 'failed' as usual.
 func (r *Repo) ResetStuckRunning(ctx context.Context) (int64, error) {
 	q := fmt.Sprintf(`UPDATE %s SET status='pending', updated_at=CURRENT_TIMESTAMP WHERE status='running'`, DB_TABLE)
 	res, err := r.db.ExecContext(ctx, q)

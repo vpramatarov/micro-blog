@@ -1,9 +1,9 @@
 // Package markdown converts user-supplied markdown source into HTML for storage in posts.html_content.
 // Backed by goldmark with GFM extensions (tables, strikethrough, autolinks, task lists) enabled.
 //
-// XSS posture: raw HTML in the markdown source is escaped (goldmark's default — WithUnsafe is intentionally not set).
+// XSS posture: raw HTML in the markdown source is escaped (goldmark's default - WithUnsafe is intentionally not set).
 // That makes the output safe to render directly in a browser.
-// If a richer HTML allow-list is needed later, layer a sanitizer (e.g. bluemonday) on top — don't relax this.
+// If a richer HTML allow-list is needed later, layer a sanitizer (e.g. bluemonday) on top - don't relax this.
 package markdown
 
 import (

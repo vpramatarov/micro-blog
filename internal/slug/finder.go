@@ -24,9 +24,8 @@ type Finder struct {
 
 func NewFinder(db *sql.DB, t Table) *Finder {
 	return &Finder{
-		db: db,
-		selectSQL: fmt.Sprintf(
-			`SELECT slug FROM %s WHERE (slug = ? OR slug LIKE ?) AND id != ?`, t.name),
+		db:        db,
+		selectSQL: fmt.Sprintf(`SELECT slug FROM %s WHERE (slug = ? OR slug LIKE ?) AND id != ?`, t.name),
 	}
 }
 

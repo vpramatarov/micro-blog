@@ -1,5 +1,5 @@
 // Package ui serves the embedded React single-page app. It is wired as chi's
-// NotFound handler (so it adds no registered routes — the openapi drift test,
+// NotFound handler (so it adds no registered routes - the openapi drift test,
 // which walks registered routes only, is unaffected) plus the "/" index route.
 //
 // Behaviour for an unmatched request:
@@ -96,7 +96,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", indexCSP)
-	// The HTML shell must not be cached hard — a redeploy ships a new index.html referencing freshly-hashed assets.
+	// The HTML shell must not be cached hard - a redeploy ships a new index.html referencing freshly-hashed assets.
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodHead {

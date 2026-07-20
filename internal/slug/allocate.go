@@ -17,9 +17,9 @@ var ErrAllocateRetryExhausted = errors.New("slug: race retry exhausted")
 //
 //   - clientSlug != "": persist the client's value via create(clientSlug).
 //     The slug-UNIQUE error surfaces as slug.ErrDuplicate so the caller can ap it to 409 slug_conflict.
-//     No retry — the client's choice is never silently mangled.
+//     No retry - the client's choice is never silently mangled.
 //     (For UPDATE handlers that want preserve-on-omit semantics,
-//     coalesce `desiredSlug := clientSlug || existing.Slug` and pass `desiredSlug` here — the explicit-slug branch fires either way.)
+//     coalesce `desiredSlug := clientSlug || existing.Slug` and pass `desiredSlug` here - the explicit-slug branch fires either way.)
 //   - clientSlug == "":  Generate(name); if "" → ErrEmptyGeneratedSlug.
 //     Otherwise Allocate (auto-suffix + retry-once on race).
 //

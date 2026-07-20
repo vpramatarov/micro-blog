@@ -177,7 +177,7 @@ func TestAllocateRetriesOnWrappedDuplicate(t *testing.T) {
 	}
 }
 
-// TestAllocatePropagatesContext makes sure the ctx parameter actually reaches the finder —
+// TestAllocatePropagatesContext makes sure the ctx parameter actually reaches the finder -
 // the closure doesn't see it, so a regression where Allocate passed context.Background() would silently break cancellation.
 func TestAllocatePropagatesContext(t *testing.T) {
 	type ctxKey struct{}
@@ -331,7 +331,7 @@ func TestAllocateForName_AutoGenerateRetriesOnRace(t *testing.T) {
 }
 
 // TestAllocateForName_ExcludeIDPassedToFinder verifies AllocateForName forwards
-// the excludeID argument to FindAvailableSlug — load-bearing for UPDATE paths
+// the excludeID argument to FindAvailableSlug - load-bearing for UPDATE paths
 // where the row's own slug must be invisible to the collision check.
 func TestAllocateForName_ExcludeIDPassedToFinder(t *testing.T) {
 	var seenExcludeID int64 = -1
@@ -350,7 +350,7 @@ func TestAllocateForName_ExcludeIDPassedToFinder(t *testing.T) {
 	}
 }
 
-// TestAllocateForName_ExplicitSlugIgnoresExcludeID — the explicit-slug branch shortcuts before any finder call, so excludeID has no effect there.
+// TestAllocateForName_ExplicitSlugIgnoresExcludeID - the explicit-slug branch shortcuts before any finder call, so excludeID has no effect there.
 // Documents the contract.
 func TestAllocateForName_ExplicitSlugIgnoresExcludeID(t *testing.T) {
 	finderCalled := false

@@ -20,9 +20,9 @@ import (
 // Authenticate so claims are guaranteed in context.
 //
 // The three repo arguments cover the queries Bouncer makes directly:
-//   - scopeRepo.GetRolePermissionScope — look up the role's scope for the
+//   - scopeRepo.GetRolePermissionScope - look up the role's scope for the
 //     action (all/own/none/"").
-//   - postsRepo.GetOwnerID / shortLinksRepo.GetOwnerID —
+//   - postsRepo.GetOwnerID / shortLinksRepo.GetOwnerID -
 //     resolve the resource's owner when scope='own'.
 func Bouncer(
 	scopeRepo *rbacRepo.Repo,
@@ -96,7 +96,7 @@ func Bouncer(
 
 			ownerID, err := ownerLookup(r.Context(), rule.OwnerKind, resourceID)
 			if err != nil {
-				// Resource missing or lookup failed — same response either way to avoid leaking existence.
+				// Resource missing or lookup failed - same response either way to avoid leaking existence.
 				logDeny(log, claims, rule, scope, r, "owner lookup failed: "+errMsg(err))
 				httpx.WriteForbidden(w)
 				return

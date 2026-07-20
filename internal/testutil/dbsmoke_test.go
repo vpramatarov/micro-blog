@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 // after EnsureTestSchema runs, every table the migrations declare must be
 // present. It was previously in internal/api/repository/repository_test.go
 // but moved here when the repository package split into per-table
-// sub-packages — no single sub-package owns "the schema" anymore.
+// sub-packages - no single sub-package owns "the schema" anymore.
 func TestDatabaseConnectionAndSchema(t *testing.T) {
 	db := testutil.SetupTestDB(t)
 
@@ -50,7 +50,7 @@ func assertTableExists(t *testing.T, db *sql.DB, name string) {
 	err := db.QueryRowContext(t.Context(), q, name).Scan(&found)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		t.Errorf("table %q is missing — migrations likely failed", name)
+		t.Errorf("table %q is missing - migrations likely failed", name)
 	case err != nil:
 		t.Fatalf("query sqlite_master for %q: %v", name, err)
 	}

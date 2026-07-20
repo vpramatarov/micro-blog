@@ -36,7 +36,7 @@ func TestLimitBodyRejectsOverCap(t *testing.T) {
 	}
 }
 
-// buildLimitedServer mounts LimitBody(cap) and a handler that drains r.Body — if reading fails,
+// buildLimitedServer mounts LimitBody(cap) and a handler that drains r.Body - if reading fails,
 // the handler writes a 400, mirroring how the real json decoder reacts to *http.MaxBytesError.
 func buildLimitedServer(t *testing.T, cap int64) http.Handler {
 	t.Helper()

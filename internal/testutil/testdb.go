@@ -13,11 +13,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// TableNames lists every table managed by the migrations, ordered so that
-// children appear before their parents. SetupTestDB deletes rows in this order
-// between tests, and schema tests can iterate it to assert each table exists.
+// TableNames lists every table managed by the migrations, ordered so that children appear before their parents.
+// SetupTestDB deletes rows in this order between tests, and schema tests can iterate it to assert each table exists.
 var TableNames = []string{
 	"post_tags",
+	"comments",
 	"short_links",
 	"posts",
 	"refresh_tokens",
@@ -28,14 +28,16 @@ var TableNames = []string{
 	"permissions",
 	"categories",
 	"tags",
+	"settings",
 }
 
 // wipeTableNames is the subset of TableNames that wipeTables actually clears between tests.
-// roles, permissions and role_permissions are seeded by migration 00004 and treated as reference data —
+// roles, permissions and role_permissions are seeded by migration 00004 and treated as reference data -
 // leaving them in place keeps the test DB consistent with production after the migrations DownTo 0 -> Up cycle.
 var wipeTableNames = []string{
 	"jobs",
 	"post_tags",
+	"comments",
 	"short_links",
 	"posts",
 	"categories",
@@ -43,6 +45,7 @@ var wipeTableNames = []string{
 	"revoked_jtis",
 	"refresh_tokens",
 	"users",
+	"settings",
 }
 
 // findRepoRoot walks up from the current working directory looking for go.mod.
@@ -70,7 +73,7 @@ func findRepoRoot() (string, error) {
 
 // testDBPath returns the absolute path of the shared test SQLite file.
 // All test binaries point at the same file; run tests with `go test -p 1 ./...`
-// to serialize them — SQLite does not tolerate concurrent writers.
+// to serialize them - SQLite does not tolerate concurrent writers.
 func testDBPath() (string, error) {
 	root, err := findRepoRoot()
 	if err != nil {
@@ -176,6 +179,11 @@ func wipeTables(db *sql.DB) error {
 
 		if _, err := db.Exec(`INSERT OR IGNORE INTO categories (id, name, slug) VALUES (1, 'Uncategorized', 'uncategorized')`); err != nil {
 			return fmt.Errorf("reseed categories: %w", err)
+		}
+
+		// Re-seed the global comments kill-switch to its migration default so a test that turns commenting off can't poison later tests.
+		if _, err := db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('comments_enabled', '1')`); err != nil {
+			return fmt.Errorf("reseed settings: %w", err)
 		}
 	}
 

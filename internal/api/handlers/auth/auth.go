@@ -126,7 +126,7 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	u, err := s.Users.GetByEmail(r.Context(), req.Email)
 	if err != nil {
-		// Burn the same bcrypt work the as wrong-password does, so the two take roughly the same wall-clock time —
+		// Burn the same bcrypt work the as wrong-password does, so the two take roughly the same wall-clock time -
 		// otherwise email existence is observable by timing.
 		_ = auth.Verify(auth.DummyHash, req.Password)
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")

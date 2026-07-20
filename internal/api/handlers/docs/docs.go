@@ -37,19 +37,19 @@ func New(issuer *auth.Issuer, log *slog.Logger) *Service {
 //     immediately with no page reload.
 //
 // Swagger UI assets are pinned to an exact version. unpkg's `@5` floating tag
-// would let any 5.x release land in the page without review — pinning makes a
+// would let any 5.x release land in the page without review - pinning makes a
 // CDN compromise visible (it would have to actively replace the pinned file).
 // For full Subresource Integrity, compute SHA-384 of the two referenced
 // files and add `integrity="sha384-..." crossorigin="anonymous"` to the <link>
 // and <script> tags. The simplest way to embed the assets and drop the CDN
-// dependency entirely is github.com/flowchartsman/swaggerui — left as a
+// dependency entirely is github.com/flowchartsman/swaggerui - left as a
 // follow-up.
 const swaggerUIVersion = "5.17.14"
 const docsHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Micro-Blog API — Docs</title>
+  <title>Micro-Blog API - Docs</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui.css" crossorigin="anonymous">
 </head>
 <body>
@@ -57,9 +57,9 @@ const docsHTML = `<!DOCTYPE html>
   <script src="https://unpkg.com/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui-bundle.js" crossorigin="anonymous"></script>
   <script>
     // Read the persisted bearer token. Two sources, in order of freshness:
-    //   1. Live Redux store — updated synchronously by the AUTHORIZE reducer,
+    //   1. Live Redux store - updated synchronously by the AUTHORIZE reducer,
     //      so the subscriber below sees the new token in the same tick.
-    //   2. localStorage["authorized"] — persistAuthorization writes this AFTER
+    //   2. localStorage["authorized"] - persistAuthorization writes this AFTER
     //      the dispatch wrapper completes; reliable on page reload but lags
     //      the same-tick fetch the subscriber kicks off after Authorize.
     function bearerFromStore() {
@@ -110,7 +110,7 @@ const docsHTML = `<!DOCTYPE html>
 
     // Re-fetch the spec whenever auth state changes so the visible operation
     // set tracks the current role. The auth slice is undefined on the very
-    // first dispatches the bundle fires during init — bail until it's there.
+    // first dispatches the bundle fires during init - bail until it's there.
     // The cache-buster timestamp on the URL stops the browser HTTP cache from
     // returning a stale anonymous spec for the authenticated re-fetch.
     let prev = null;
@@ -148,13 +148,13 @@ func (s *Service) audienceFor(r *http.Request) string {
 	return "anonymous"
 }
 
-// ServeOpenAPIYAML — GET /openapi.yaml. Public; response varies by bearer token.
+// ServeOpenAPIYAML - GET /openapi.yaml. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIYAML(w http.ResponseWriter, r *http.Request) {
 	writeSpecHeaders(w, "application/yaml")
 	_, _ = w.Write(api.SpecYAMLByRole[s.audienceFor(r)])
 }
 
-// ServeOpenAPIJSON — GET /openapi.json. Public; response varies by bearer token.
+// ServeOpenAPIJSON - GET /openapi.json. Public; response varies by bearer token.
 func (s *Service) ServeOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	writeSpecHeaders(w, "application/json")
 	_, _ = w.Write(api.SpecJSONByRole[s.audienceFor(r)])
@@ -170,7 +170,7 @@ func writeSpecHeaders(w http.ResponseWriter, contentType string) {
 	w.Header().Set("Vary", "Authorization")
 }
 
-// ServeDocs — GET /docs. Public.
+// ServeDocs - GET /docs. Public.
 func (s *Service) ServeDocs(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Inline JS is embedded in the binary; without this, a browser will happily

@@ -1,5 +1,5 @@
 // Package uploads serves files written by internal/uploads (post featured images and their variants) at /uploads/{path}.
-// Public route — no auth.
+// Public route - no auth.
 // Cache-Control is set to immutable so browsers / CDNs can hold these indefinitely..
 package uploads
 
@@ -21,7 +21,7 @@ func Handler(root string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		// Defense in depth — chi already rejects "/uploads/..", but disallow any traversal element that slipped through (e.g. URL-encoded).
+		// Defense in depth - chi already rejects "/uploads/..", but disallow any traversal element that slipped through (e.g. URL-encoded).
 		if strings.Contains(rel, "..") {
 			http.NotFound(w, r)
 			return
