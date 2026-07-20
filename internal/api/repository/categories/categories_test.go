@@ -225,7 +225,7 @@ func TestCreateCategorySlugDuplicate(t *testing.T) {
 	if _, err := r.Create(ctx, "Engineering", "eng"); err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	// Different name, same slug — must fire the unified slug.ErrDuplicate.
+	// Different name, same slug - must fire the unified slug.ErrDuplicate.
 	_, err := r.Create(ctx, "Engineering Reloaded", "eng")
 	if !errors.Is(err, slug.ErrDuplicate) {
 		t.Errorf("got %v, want slug.ErrDuplicate", err)

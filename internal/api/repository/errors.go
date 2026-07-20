@@ -15,7 +15,7 @@ func IsUniqueViolation(err error) bool {
 
 // IsSlugUniqueViolation matches modernc.org/sqlite's wording for UNIQUE
 // constraint failures. We only flag it when the error mentions the posts.slug
-// index — other UNIQUE columns on posts would funnel into a generic 500.
+// index - other UNIQUE columns on posts would funnel into a generic 500.
 // 'routeName' Ex.: "posts.slug"
 func IsSlugUniqueViolation(err error, routeName string) bool {
 	if err == nil {

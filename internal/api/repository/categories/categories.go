@@ -20,7 +20,7 @@ const CATEGORIES_COLUMNS string = "id, name, slug, created_at"
 // ErrCategoryNotFound is returned when a SELECT/UPDATE/DELETE targets an id or name that does not exist.
 var ErrCategoryNotFound = errors.New("category not found")
 
-// ErrCategoryDuplicate is returned when an INSERT or UPDATE would collide on (name) — the column is UNIQUE in migration 00006.
+// ErrCategoryDuplicate is returned when an INSERT or UPDATE would collide on (name) - the column is UNIQUE in migration 00006.
 var ErrCategoryDuplicate = errors.New("category already exists")
 
 // ErrCategoryInUse is returned by DeleteCategory when posts still reference the row.
@@ -172,7 +172,7 @@ func (r *Repo) Count(ctx context.Context) (int, error) {
 }
 
 // Update replaces the name. Pre-checks existence for the same reason
-// as the rest of the repo layer — SQLite's RowsAffected on UPDATE counts only
+// as the rest of the repo layer - SQLite's RowsAffected on UPDATE counts only
 // rows that actually changed, so a no-op update on an existing row reports 0.
 func (r *Repo) Update(ctx context.Context, id int64, name string, slugStr string) error {
 	if _, err := r.GetByID(ctx, id); err != nil {
@@ -197,7 +197,7 @@ func (r *Repo) Update(ctx context.Context, id int64, name string, slugStr string
 }
 
 // Delete removes the row. Returns ErrCategoryInUse when the FK from
-// posts.category_id (ON DELETE RESTRICT) refuses the DELETE — i.e., one or
+// posts.category_id (ON DELETE RESTRICT) refuses the DELETE - i.e., one or
 // more posts still reference this category. The handler maps that to 409 category_in_use.
 func (r *Repo) Delete(ctx context.Context, id int64) error {
 	q := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, DB_TABLE)
@@ -239,10 +239,10 @@ func (r *Repo) Exists(ctx context.Context, id int64) (bool, error) {
 }
 
 // GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
-// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
+// `excludePostID` lets an UPDATE keep its own slug - pass 0 from CreatePost.
 //
 // The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
-// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
+// A concurrent writer can still race us between the SELECT and the INSERT - the UNIQUE index catches that and the handler retries.
 func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
 	return r.slugFinder.Generate(ctx, base, excludePostID)
 }

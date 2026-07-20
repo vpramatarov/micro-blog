@@ -71,7 +71,7 @@ func Load() *Config {
 
 // ValidateForServer returns an error if the config is unsafe for serving
 // authenticated traffic. Called from the API server's startup path; the
-// migrate CLI deliberately does not call this — it only needs DB_STRING.
+// migrate CLI deliberately does not call this - it only needs DB_STRING.
 func (c *Config) ValidateForServer() error {
 	if c.JWTSecret == "" {
 		return fmt.Errorf("JWT_SECRET is required; set a random value of at least %d bytes", MinJWTSecretBytes)

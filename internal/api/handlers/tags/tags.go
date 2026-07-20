@@ -15,7 +15,7 @@ import (
 	"github.com/vpramatarov/micro-blog/internal/validation"
 )
 
-// Service handles tag endpoints. post_tags rows that reference deleted tags CASCADE away — there is no in-use branch on delete.
+// Service handles tag endpoints. post_tags rows that reference deleted tags CASCADE away - there is no in-use branch on delete.
 type Service struct {
 	Tags *tagsrepo.Repo
 	Log  *slog.Logger
@@ -50,7 +50,7 @@ func (r *tagWriteRequest) Validate() validation.Errors {
 	return e
 }
 
-// List — GET /tags. Public. Paginated via ?page / ?per_page.
+// List - GET /tags. Public. Paginated via ?page / ?per_page.
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
 	if !ok {
@@ -76,7 +76,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create— POST /admin/tags. Admin or Editor only.
+// Create- POST /admin/tags. Admin or Editor only.
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	var req tagWriteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,7 +117,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, tag)
 }
 
-// Update — PUT /admin/tags/{id}. Admin or Editor only.
+// Update - PUT /admin/tags/{id}. Admin or Editor only.
 func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -181,7 +181,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, tag)
 }
 
-// Delete — DELETE /admin/tags/{id}. Admin or Editor only. Cascades to
+// Delete - DELETE /admin/tags/{id}. Admin or Editor only. Cascades to
 // post_tags so callers don't need to detach first.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)

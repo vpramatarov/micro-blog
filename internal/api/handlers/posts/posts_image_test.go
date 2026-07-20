@@ -124,7 +124,7 @@ func TestCreatePostWithImageHappy(t *testing.T) {
 	if _, err := os.Stat(originalFull); err != nil {
 		t.Fatalf("original missing on disk: %v", err)
 	}
-	// One pending job — process it inline.
+	// One pending job - process it inline.
 	runVariantsInline(t, env)
 	for _, suffix := range []string{"s", "m", "l"} {
 		variantFull := filepath.Join(env.app.uploadsRoot, filepath.FromSlash(
@@ -136,7 +136,7 @@ func TestCreatePostWithImageHappy(t *testing.T) {
 	}
 }
 
-// TestCreatePostWithoutImage — no file part, no path on response, no job
+// TestCreatePostWithoutImage - no file part, no path on response, no job
 // enqueued. The "default" path for posts that don't need a featured image.
 func TestCreatePostWithoutImage(t *testing.T) {
 	env := setupPostWriteEnv(t)
@@ -160,7 +160,7 @@ func TestCreatePostWithoutImage(t *testing.T) {
 	}
 }
 
-// TestCreatePostRejectsGIF — only jpeg/png accepted; gif → 415.
+// TestCreatePostRejectsGIF - only jpeg/png accepted; gif → 415.
 func TestCreatePostRejectsGIF(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"gif","markdown_content":"# gif rejection test","category_id":1}`
@@ -170,7 +170,7 @@ func TestCreatePostRejectsGIF(t *testing.T) {
 	}
 }
 
-// TestCreatePostRejectsSmall — image below MinDimension → 400 with field.
+// TestCreatePostRejectsSmall - image below MinDimension → 400 with field.
 func TestCreatePostRejectsSmall(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"small","markdown_content":"# small image test","category_id":1}`
@@ -182,7 +182,7 @@ func TestCreatePostRejectsSmall(t *testing.T) {
 	assertValidationFields(t, rec.Body.Bytes(), map[string]string{"featured_image": "image must be at least 800x800 pixels"})
 }
 
-// TestUpdatePostReplaceImage — replacing the image deletes old files and
+// TestUpdatePostReplaceImage - replacing the image deletes old files and
 // writes new ones.
 func TestUpdatePostReplaceImage(t *testing.T) {
 	env := setupPostWriteEnv(t)
@@ -207,7 +207,7 @@ func TestUpdatePostReplaceImage(t *testing.T) {
 		t.Fatalf("old original should exist: %v", err)
 	}
 
-	// PUT a brand-new image — should replace.
+	// PUT a brand-new image - should replace.
 	rec = doMultipartPost(
 		t,
 		env.app.r,
@@ -247,7 +247,7 @@ func TestUpdatePostReplaceImage(t *testing.T) {
 	}
 }
 
-// TestUpdatePostRemoveImage — remove_featured_image:true wipes the image.
+// TestUpdatePostRemoveImage - remove_featured_image:true wipes the image.
 func TestUpdatePostRemoveImage(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"with image","markdown_content":"# body content","category_id":1}`
@@ -281,7 +281,7 @@ func TestUpdatePostRemoveImage(t *testing.T) {
 	}
 }
 
-// TestUpdatePostKeepImage — neither file nor remove flag → keep existing.
+// TestUpdatePostKeepImage - neither file nor remove flag → keep existing.
 func TestUpdatePostKeepImage(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"keep me","markdown_content":"# body content","category_id":1}`
@@ -320,7 +320,7 @@ func TestUpdatePostKeepImage(t *testing.T) {
 	}
 }
 
-// TestDeletePostCascadesImage — DELETE wipes the original + variants.
+// TestDeletePostCascadesImage - DELETE wipes the original + variants.
 func TestDeletePostCascadesImage(t *testing.T) {
 	env := setupPostWriteEnv(t)
 	body := `{"title":"doomed","markdown_content":"# bye for now","category_id":1}`
@@ -359,18 +359,18 @@ func TestDeletePostCascadesImage(t *testing.T) {
 	}
 }
 
-// TestMultipartBodyTooLarge — payload past MultipartBodyLimit → 413.
+// TestMultipartBodyTooLarge - payload past MultipartBodyLimit → 413.
 func TestMultipartBodyTooLarge(t *testing.T) {
 	env := setupPostWriteEnv(t)
-	// 6 MiB of zero bytes — past the 5 MiB cap with slack.
+	// 6 MiB of zero bytes - past the 5 MiB cap with slack.
 	huge := make([]byte, 6*1024*1024)
 	body := `{"title":"big","markdown_content":"# big payload test","category_id":1}`
 	rec := doMultipartPost(t, env.app.r, http.MethodPost, "/admin/posts", env.tokens["Author"], body, "huge.jpg", huge)
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize: got %d, want 413; body=%s", rec.Code, rec.Body.String())
 	}
-	// Sanity check on the constant — guard against accidental loosening.
+	// Sanity check on the constant - guard against accidental loosening.
 	if postsh.MultipartBodyLimit > 6*1024*1024 {
-		t.Fatalf("MultipartBodyLimit changed past 6 MiB — update this test")
+		t.Fatalf("MultipartBodyLimit changed past 6 MiB - update this test")
 	}
 }

@@ -15,7 +15,7 @@ const DB_TABLE string = "short_links"
 // ErrShortLinkNotFound is returned when a SELECT/UPDATE/DELETE targets an id that does not exist.
 var ErrShortLinkNotFound = errors.New("short link not found.")
 
-// ShortLink is both the DB row and the JSON view. Code is not persisted —
+// ShortLink is both the DB row and the JSON view. Code is not persisted -
 // handlers populate it before serializing by encoding ID with shortcode.Encoder.
 type ShortLink struct {
 	ID          int64     `json:"id"`
@@ -109,7 +109,7 @@ func (r *Repo) Create(ctx context.Context, userID int64, originalURL string) (in
 }
 
 func (r *Repo) Update(ctx context.Context, id int64, originalURL string) error {
-	// Pre-check existence — SQLite's RowsAffected on UPDATE counts only rows that actually changed,
+	// Pre-check existence - SQLite's RowsAffected on UPDATE counts only rows that actually changed,
 	// so a no-op update on an existing row reports 0 and would be indistinguishable from a missing row.
 	if _, err := r.Get(ctx, id); err != nil {
 		return err
