@@ -1,6 +1,6 @@
 # Production baseline. A single `api` service: the Go binary serves the JSON
 # API, the /uploads/* static files, and (next plan) the React SPA from the same
-# origin — so there is no separate frontend service.
+# origin - so there is no separate frontend service.
 #
 # Secrets come from a host .env (see .env.example); they are NEVER baked into
 # the image. The `environment:` block below pins container-runtime paths and

@@ -1,4 +1,4 @@
-# Dev overrides — auto-merged by `docker compose` on top of docker-compose.yml.
+# Dev overrides - auto-merged by `docker compose` on top of docker-compose.yml.
 # Swaps the prod image for the air-based live-reload image, bind-mounts the
 # source, and relaxes the cookie flag for plain-HTTP local use.
 #
@@ -20,7 +20,7 @@ services:
       - "8090:8080"
     restart: "no"
 
-  # Vite dev server with hot reload. Open http://localhost:5173 — it serves the
+  # Vite dev server with hot reload. Open http://localhost:5173 - it serves the
   # SPA + HMR and proxies API calls to the `api` service over the Compose
   # network. The host ./web is bind-mounted for live edits; node_modules is kept
   # inside the container so the mount doesn't shadow the Linux-built deps.

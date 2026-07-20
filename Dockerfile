@@ -75,7 +75,7 @@ ENV PORT=8080 \
 
 EXPOSE 8080
 
-# GET / (the public Home route) returns 200 — cheap liveness probe.
+# GET / (the public Home route) returns 200 - cheap liveness probe.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -qO- "http://127.0.0.1:${PORT}/" >/dev/null 2>&1 || exit 1
 

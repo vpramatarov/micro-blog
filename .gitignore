@@ -33,7 +33,7 @@ vendor/
 *.db-shm
 *.db-wal
 
-# .env files carry secrets — never commit
+# .env files carry secrets - never commit
 .env
 .env.*
 !.env.example

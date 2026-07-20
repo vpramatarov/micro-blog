@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Development image: live-reload via air. Source is bind-mounted by
-# docker-compose.override.yml, so nothing is COPYed in — the container compiles
+# docker-compose.override.yml, so nothing is COPYed in - the container compiles
 # whatever is on the host and rebuilds on save.
 FROM golang:1.26-alpine
 

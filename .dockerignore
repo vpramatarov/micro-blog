@@ -1,6 +1,6 @@
 # Keep secrets, local state, and VCS out of the build context / image layers.
 # NOTE: do NOT ignore api/ (embedded OpenAPI) or cmd/migrate/migrations/*.sql
-# (embedded migrations) — go:embed needs them in the build context.
+# (embedded migrations) - go:embed needs them in the build context.
 
 .git
 .gitignore
