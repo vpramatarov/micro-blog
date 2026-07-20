@@ -2,7 +2,7 @@
 // plus a small accumulator (`Errors`) that handlers use to collect every failed rule before responding.
 // Empty string means "valid".
 //
-// The helpers each return only the FIRST violated rule for that field so the response stays focused —
+// The helpers each return only the FIRST violated rule for that field so the response stays focused -
 // clients get one message per field, not a chain of overlapping ones. Order matters inside each helper:
 // more fundamental rules (required, length) before downstream ones (format, charset).
 package validation
@@ -29,6 +29,8 @@ const (
 	NameMaxLen     = 50
 	SlugMinLen     = 1
 	SlugMaxLen     = 250
+	CommentMinLen  = 1
+	CommentMaxLen  = 2000
 )
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -171,7 +173,7 @@ func URL(raw string) string {
 	return ""
 }
 
-// Name: required, [1,50] chars after trim. Unicode-friendly — accepts "AI", "общи теми", "Front-end".
+// Name: required, [1,50] chars after trim. Unicode-friendly - accepts "AI", "общи теми", "Front-end".
 func Name(s string) string {
 	s = strings.TrimSpace(s)
 	switch {
@@ -199,7 +201,7 @@ func PostStatus(s string) string {
 }
 
 // Slug accepts kebab-case ASCII (1–100 chars after trim).
-// Empty input returns "is required" — handlers that treat empty as "auto-generate from name" must short-circuit before calling this.
+// Empty input returns "is required" - handlers that treat empty as "auto-generate from name" must short-circuit before calling this.
 func Slug(s string) string {
 	s = strings.TrimSpace(s)
 	switch {
@@ -211,5 +213,18 @@ func Slug(s string) string {
 		return "may only contain lowercase letters, digits, and hyphens"
 	}
 
+	return ""
+}
+
+// CommentContent: required, [1,2000] chars after trim.
+// Unicode-friendly - comments are plain text with no charset restriction, so only presence and length are checked.
+func CommentContent(s string) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "is required"
+	case len(s) > CommentMaxLen:
+		return "must be at most 2000 characters"
+	}
 	return ""
 }
