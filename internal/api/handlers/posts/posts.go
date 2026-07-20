@@ -6,7 +6,6 @@ package posts
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -314,7 +313,6 @@ func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
 
 	posts, err := s.listPostsForRole(r, claims, status, limit, offset)
 	if err != nil {
-		log.Fatalf("error: %v", err)
 		s.Log.Error("list posts", "err", err, "user_id", claims.UserID, "role", claims.Role)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts (list)")
 		return
