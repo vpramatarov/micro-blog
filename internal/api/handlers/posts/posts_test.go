@@ -31,6 +31,7 @@ import (
 	jobsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
 	rbacrepo "github.com/vpramatarov/micro-blog/internal/api/repository/rbac"
+	settingsrepo "github.com/vpramatarov/micro-blog/internal/api/repository/settings"
 	shortlinksrepo "github.com/vpramatarov/micro-blog/internal/api/repository/shortlinks"
 	tagssrepo "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	tokensrepo "github.com/vpramatarov/micro-blog/internal/api/repository/tokens"
@@ -78,10 +79,11 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 	postsRepo := postsrepo.New(db)
 	shortLinksRepo := shortlinksrepo.New(db)
 	categoriesRepo := categoriesrepo.New(db)
+	settingsRepo := settingsrepo.New(db)
 	tagsRepo := tagssrepo.New(db)
 	jobsRepo := jobsrepo.New(db)
 
-	// Per-test sandbox for uploads — wiped automatically by t.Cleanup via t.TempDir,
+	// Per-test sandbox for uploads - wiped automatically by t.Cleanup via t.TempDir,
 	// so nothing leaks between tests and we don't touch the project's real ./uploads directory.
 	uploadsRoot := t.TempDir()
 	storage := uploads.New(uploadsRoot)
@@ -95,7 +97,7 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 
 	authSvc := authh.New(cfg, usersRepo, tokensRepo, issuer, nil)
 	usersSvc := usersh.New(cfg, usersRepo, rbacRepo, nil)
-	postsSvc := postsh.New(postsRepo, categoriesRepo, tagsRepo, storage, jobsRepo, encoder, nil)
+	postsSvc := postsh.New(postsRepo, categoriesRepo, tagsRepo, settingsRepo, storage, jobsRepo, encoder, nil)
 	shortlinksSvc := shortlinksh.New(shortLinksRepo, encoder, nil)
 	docsSvc := docsh.New(issuer, nil)
 	categoriesSvc := categoriesh.New(categoriesRepo, nil)
@@ -131,7 +133,7 @@ func buildApp(t *testing.T) (*appDeps, *sql.DB) {
 }
 
 // doMultipartPost wraps body (the JSON for the "data" form field) into a multipart request and optionally attaches a file to the "featured_image" field.
-// fileBytes==nil → no file. Used by every test that creates or updates a post — the endpoints accept multipart only.
+// fileBytes==nil → no file. Used by every test that creates or updates a post - the endpoints accept multipart only.
 func doMultipartPost(t *testing.T, srv http.Handler, method, path, token, dataJSON string, fileName string, fileBytes []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
@@ -280,7 +282,7 @@ func TestListPostsAdminUnauthenticated(t *testing.T) {
 	}
 }
 
-// TestGetPostAdminRequiresAdminRole asserts that /admin/post/{id} (numeric id read) is gated to the Admin role only — Authors/Editors/Subscribers get 403.
+// TestGetPostAdminRequiresAdminRole asserts that /admin/post/{id} (numeric id read) is gated to the Admin role only - Authors/Editors/Subscribers get 403.
 func TestGetPostAdminRequiresAdminRole(t *testing.T) {
 	app, raw := buildApp(t)
 	ctx := t.Context()
@@ -370,7 +372,7 @@ func TestGetPostByHashidPublic(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 
-	// Happy path — unauthenticated request, valid code.
+	// Happy path - unauthenticated request, valid code.
 	req := httptest.NewRequest(http.MethodGet, "/p/"+code, nil)
 	rec := httptest.NewRecorder()
 	app.r.ServeHTTP(rec, req)
@@ -599,7 +601,7 @@ func TestCreatePostAsAuthor(t *testing.T) {
 	}
 
 	if got.HTMLContent == got.MarkdownContent {
-		t.Errorf("html_content equals markdown_content — renderer not applied")
+		t.Errorf("html_content equals markdown_content - renderer not applied")
 	}
 
 	excerpt := markdown.ToText(got.MarkdownContent)
@@ -704,14 +706,14 @@ func TestUpdatePostNoOpStillReturns200(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// First request changes values — works either way.
+	// First request changes values - works either way.
 	body := `{"title":"same title","markdown_content":"identical body","category_id":1}`
 	rec := doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("first update: got %d, want 200", rec.Code)
 	}
 
-	// Second request with the exact same body — the row already matches, so
+	// Second request with the exact same body - the row already matches, so
 	// SQLite reports RowsAffected=0. The handler must still return 200.
 	rec = doMultipartPost(t, env.app.r, http.MethodPut, fmt.Sprintf("/admin/posts/%d", id), env.tokens["Admin"], body, "", nil)
 	if rec.Code != http.StatusOK {
@@ -1253,7 +1255,7 @@ func TestListPostsByTagSlugPublic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create tag: %v", err)
 	}
-	// Different tag — its posts must not leak into the /tags/go response.
+	// Different tag - its posts must not leak into the /tags/go response.
 	otherTagID, _ := app.tagsRepo.Create(ctx, "Web", "web")
 	mustPostWithTags := func(title, slug, status string, tagIDs []int64) int64 {
 		t.Helper()
@@ -1366,7 +1368,7 @@ func TestListPostsByCategorySlugAdminRoleFilter(t *testing.T) {
 	}
 }
 
-// TestListPostsByCategorySlugAdminStatusFilter exercises the ?status= query parameter —
+// TestListPostsByCategorySlugAdminStatusFilter exercises the ?status= query parameter -
 // same semantics as /admin/posts (empty = all statuses, enum value = filter, bogus value = 400).
 func TestListPostsByCategorySlugAdminStatusFilter(t *testing.T) {
 	app, raw := buildApp(t)
@@ -1426,7 +1428,7 @@ func TestListPostsByCategorySlugAdminStatusFilter(t *testing.T) {
 }
 
 // TestListPostsByTagSlugAdminMatrix runs the same role + status matrix against the tag pivot.
-// Lighter than the category test because the join shape is the only difference — the role/status logic is shared.
+// Lighter than the category test because the join shape is the only difference - the role/status logic is shared.
 func TestListPostsByTagSlugAdminMatrix(t *testing.T) {
 	app, raw := buildApp(t)
 	ctx := t.Context()

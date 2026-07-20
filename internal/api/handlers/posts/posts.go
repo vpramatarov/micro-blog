@@ -6,6 +6,7 @@ package posts
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	categoryRepository "github.com/vpramatarov/micro-blog/internal/api/repository/categories"
 	"github.com/vpramatarov/micro-blog/internal/api/repository/jobs"
 	postRepository "github.com/vpramatarov/micro-blog/internal/api/repository/posts"
+	settingsRepository "github.com/vpramatarov/micro-blog/internal/api/repository/settings"
 	tagRepository "github.com/vpramatarov/micro-blog/internal/api/repository/tags"
 	"github.com/vpramatarov/micro-blog/internal/auth"
 	"github.com/vpramatarov/micro-blog/internal/imagex"
@@ -51,8 +53,9 @@ var errImageRejected = errors.New("posts: image rejected (response already writt
 // The hydration helpers always allocate an empty map so a post with no tags serializes as `{}`, not `null`.
 type PostResponse struct {
 	postRepository.Post
-	Excerpt string           `json:"excerpt"`
-	Tags    map[int64]string `json:"tags"`
+	Excerpt      string           `json:"excerpt"`
+	Tags         map[int64]string `json:"tags"`
+	CommentsOpen bool             `json:"comments_open"`
 }
 
 type postWriteRequest struct {
@@ -62,6 +65,7 @@ type postWriteRequest struct {
 	TagIDs              []int64 `json:"tag_ids"`
 	RemoveFeaturedImage bool    `json:"remove_featured_image"`
 	Status              string  `json:"status"`
+	CommentsEnabled     *bool   `json:"comments_enabled"`
 }
 
 // PostsByCategoryResponse wraps the paginated post list with the parent
@@ -74,7 +78,7 @@ type PostsByCategoryResponse struct {
 	Total    int                         `json:"total"`
 }
 
-// PostsByTagResponse — same wrapper for the tag pivot.
+// PostsByTagResponse - same wrapper for the tag pivot.
 type PostsByTagResponse struct {
 	Tag     tagRepository.Tag `json:"tag"`
 	Items   []PostResponse    `json:"items"`
@@ -140,6 +144,7 @@ func (r *postWriteRequest) ValidateCreate() validation.Errors {
 type Service struct {
 	Posts      *postRepository.Repo
 	Categories *categoryRepository.Repo
+	Settings   *settingsRepository.Repo
 	Tags       *tagRepository.Repo
 	Storage    *uploads.Storage
 	Jobs       *jobs.Repo
@@ -151,6 +156,7 @@ func New(
 	repo *postRepository.Repo,
 	categoriesRepo *categoryRepository.Repo,
 	tagsRepo *tagRepository.Repo,
+	settingsRepo *settingsRepository.Repo,
 	storage *uploads.Storage,
 	jobsRepo *jobs.Repo,
 	encoder *shortcode.Encoder,
@@ -164,6 +170,7 @@ func New(
 		Posts:      repo,
 		Categories: categoriesRepo,
 		Tags:       tagsRepo,
+		Settings:   settingsRepo,
 		Storage:    storage,
 		Jobs:       jobsRepo,
 		Encoder:    encoder,
@@ -171,7 +178,7 @@ func New(
 	}
 }
 
-// List — GET /posts. Public. Returns every post with a hashid `code` callers can use against GET /posts/{code}. Paginated via ?page / ?per_page.
+// List - GET /posts. Public. Returns every post with a hashid `code` callers can use against GET /posts/{code}. Paginated via ?page / ?per_page.
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
 	if !ok {
@@ -200,7 +207,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, httpx.Page[PostResponse]{Items: items, Page: page, PerPage: perPage, Total: total})
 }
 
-// GetByCode — GET /p/{code}. Public; decodes the hashid back to a numeric id and serves the post.
+// GetByCode - GET /p/{code}. Public; decodes the hashid back to a numeric id and serves the post.
 // Used by everyone who is not an Admin and by unauthenticated callers.
 func (s *Service) GetByCode(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "code")
@@ -243,7 +250,7 @@ func (s *Service) GetByCode(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, view)
 }
 
-// GetBySlug — GET /posts/{slug}. Public.
+// GetBySlug - GET /posts/{slug}. Public.
 func (s *Service) GetBySlug(w http.ResponseWriter, r *http.Request) {
 	slugParam := chi.URLParam(r, "slug")
 	if slugParam == "" {
@@ -278,7 +285,7 @@ func (s *Service) GetBySlug(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, view)
 }
 
-// ListAdmin — GET /admin/posts. Authenticated; Authors only see their own posts, every other role sees all posts.
+// ListAdmin - GET /admin/posts. Authenticated; Authors only see their own posts, every other role sees all posts.
 // Paginated via ?page / ?per_page. Accepts an optional ?status=draft|published|archived filter; empty means all statuses.
 // The numeric `id` is exposed because admins/editors/authors need it to call PUT/DELETE /admin/posts/{id}.
 func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +314,7 @@ func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
 
 	posts, err := s.listPostsForRole(r, claims, status, limit, offset)
 	if err != nil {
+		log.Fatalf("error: %v", err)
 		s.Log.Error("list posts", "err", err, "user_id", claims.UserID, "role", claims.Role)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not list posts (list)")
 		return
@@ -321,7 +329,7 @@ func (s *Service) ListAdmin(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, httpx.Page[PostResponse]{Items: items, Page: page, PerPage: perPage, Total: total})
 }
 
-// GetById — GET /admin/post/{id}. Admin role only (enforced by the router's requireAdminMW). Reads a post by its raw numeric id.
+// GetById - GET /admin/post/{id}. Admin role only (enforced by the router's requireAdminMW). Reads a post by its raw numeric id.
 func (s *Service) GetById(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
 	if err != nil {
@@ -350,7 +358,7 @@ func (s *Service) GetById(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, view)
 }
 
-// Create — POST /admin/posts. Bouncer gates on post:create.
+// Create - POST /admin/posts. Bouncer gates on post:create.
 // author_id is taken from the caller's claims so Authors can never spoof another user.
 func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
@@ -375,7 +383,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Existence checks happen only after the format pass succeeds — same pattern as users.Create's role_id check.
+	// Existence checks happen only after the format pass succeeds - same pattern as users.Create's role_id check.
 	if ok := s.validateTaxonomies(w, r, req, errs); !ok {
 		return
 	}
@@ -445,7 +453,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, view)
 }
 
-// Update — PUT /admin/posts/{id}. Bouncer enforces ownership for Authors;
+// Update - PUT /admin/posts/{id}. Bouncer enforces ownership for Authors;
 // Admin/Editor pass through to any post. Returns the updated post.
 // Image semantics:
 //   - file part present                  → REPLACE the existing image
@@ -474,7 +482,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the existing row up front — we need its current featured_image_path
+	// Load the existing row up front - we need its current featured_image_path
 	// to decide whether to delete on disk after the UPDATE succeeds (replace + clear branches).
 	existing, err := s.Posts.GetByID(r.Context(), id)
 	if err != nil {
@@ -542,15 +550,21 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		newPath = oldPath
 	}
 
-	// Posts always regenerate slug from the new title — no clientSlug input.
+	// Comment toggle: omitted (nil) keeps the existing per-post flag.
+	commentsEnabled := existing.CommentsEnabled
+	if req.CommentsEnabled != nil {
+		commentsEnabled = *req.CommentsEnabled
+	}
+
+	// Posts always regenerate slug from the new title - no clientSlug input.
 	// excludeID=id so the row's own slug doesn't count as a self-collision.
 	// AllocateForName runs Generate(title) internally; an empty result surfaces as ErrEmptyGeneratedSlug below (image rollback path covers it).
 	_, err = slug.Allocate(r.Context(), s.Posts, title, "", id, s.updateFn(r, id, postRepository.PostUpdate{
-		CategoryID: categoryID, Title: title, Markdown: mdContent, HTML: html, FeaturedImagePath: newPath, Status: newStatus,
+		CategoryID: categoryID, Title: title, Markdown: mdContent, HTML: html, FeaturedImagePath: newPath, Status: newStatus, CommentsEnabled: commentsEnabled,
 	}))
 	if err != nil {
 		// Roll back any freshly-saved image on UPDATE failure so we don't leak orphans.
-		// We deliberately do NOT touch oldPath here — the existing post still references it.
+		// We deliberately do NOT touch oldPath here - the existing post still references it.
 		if newPath != "" && newPath != oldPath {
 			_ = s.Storage.DeleteAll(newPath)
 		}
@@ -569,7 +583,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dataPresent {
-		// Tag set is rewritten unconditionally on update — pass nil to clear.
+		// Tag set is rewritten unconditionally on update - pass nil to clear.
 		if err := s.Tags.ReplaceForPost(r.Context(), id, req.TagIDs); err != nil {
 			s.Log.Error("replace tags", "err", err, "post_id", id)
 			httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not update tags")
@@ -579,7 +593,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 
 	if deleteOld != "" {
 		if err := s.Storage.DeleteAll(deleteOld); err != nil {
-			// Don't fail the request — the row already changed. Log so it can be reaped manually if it ever matters.
+			// Don't fail the request - the row already changed. Log so it can be reaped manually if it ever matters.
 			s.Log.Warn("delete old featured image", "err", err, "path", deleteOld)
 		}
 	}
@@ -594,7 +608,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, view)
 }
 
-// Delete — DELETE /admin/posts/{id}. Bouncer enforces ownership for Authors;
+// Delete - DELETE /admin/posts/{id}. Bouncer enforces ownership for Authors;
 // Admin/Editor can delete any post.
 func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.ParseIDParam(r)
@@ -635,7 +649,7 @@ func (s *Service) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListByCategorySlug — GET /categories/{slug}. Public; only published posts in the category are returned. Unknown slug → 404.
+// ListByCategorySlug - GET /categories/{slug}. Public; only published posts in the category are returned. Unknown slug → 404.
 // Pagination is the same shape as GET /posts.
 func (s *Service) ListByCategorySlug(w http.ResponseWriter, r *http.Request) {
 	cat, ok := s.lookupCategoryBySlug(w, r)
@@ -646,7 +660,7 @@ func (s *Service) ListByCategorySlug(w http.ResponseWriter, r *http.Request) {
 	s.listByCategory(w, r, cat, 0, postRepository.PostStatusPublished)
 }
 
-// ListByCategorySlugAdmin — GET /admin/categories/{slug}. Authenticated;
+// ListByCategorySlugAdmin - GET /admin/categories/{slug}. Authenticated;
 // Author role sees only own posts in this category (closed-loop via claims.UserID), every other role sees all.
 // Accepts ?status= (same enum as /admin/posts).
 func (s *Service) ListByCategorySlugAdmin(w http.ResponseWriter, r *http.Request) {
@@ -674,7 +688,7 @@ func (s *Service) ListByCategorySlugAdmin(w http.ResponseWriter, r *http.Request
 	s.listByCategory(w, r, cat, authorID, status)
 }
 
-// ListByTagSlug — GET /tags/{slug}. Public counterpart of the category endpoint; only published posts in the tag are returned.
+// ListByTagSlug - GET /tags/{slug}. Public counterpart of the category endpoint; only published posts in the tag are returned.
 func (s *Service) ListByTagSlug(w http.ResponseWriter, r *http.Request) {
 	tag, ok := s.lookupTagBySlug(w, r)
 	if !ok {
@@ -684,7 +698,7 @@ func (s *Service) ListByTagSlug(w http.ResponseWriter, r *http.Request) {
 	s.listByTag(w, r, tag, 0, postRepository.PostStatusPublished)
 }
 
-// ListByTagSlugAdmin — GET /admin/tags/{slug}. Same role-aware filter as the category admin endpoint.
+// ListByTagSlugAdmin - GET /admin/tags/{slug}. Same role-aware filter as the category admin endpoint.
 func (s *Service) ListByTagSlugAdmin(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -792,7 +806,7 @@ func (s *Service) lookupTagBySlug(w http.ResponseWriter, r *http.Request) (*tagR
 }
 
 // listByCategory is the shared body for the public and admin endpoints.
-// authorID=0 / status="" mean "no filter" — sentinels follow the repo layer convention.
+// authorID=0 / status="" mean "no filter" - sentinels follow the repo layer convention.
 func (s *Service) listByCategory(w http.ResponseWriter, r *http.Request, cat *categoryRepository.Category, authorID int64, status string) {
 	limit, offset, page, perPage, ok := httpx.ParsePagination(w, r)
 	if !ok {
@@ -889,7 +903,12 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 		}
 	}
 
-	view := &PostResponse{Post: *post, Excerpt: markdown.ToText(post.MarkdownContent), Tags: make(map[int64]string)}
+	view := &PostResponse{
+		Post:         *post,
+		Excerpt:      markdown.ToText(post.MarkdownContent),
+		Tags:         make(map[int64]string),
+		CommentsOpen: s.commentsGloballyEnabled(r) && post.CommentsEnabled,
+	}
 	tagSlice, err := s.Tags.ListForPost(r.Context(), post.ID)
 	if err != nil {
 		s.Log.Error("hydrate tags", "err", err, "post_id", post.ID)
@@ -923,8 +942,15 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 		return nil, err
 	}
 
+	commentsGlobal := s.commentsGloballyEnabled(r)
 	for i, p := range posts {
-		view := PostResponse{Post: p, Excerpt: markdown.ToText(p.MarkdownContent), Tags: make(map[int64]string)}
+		view := PostResponse{
+			Post:         p,
+			Excerpt:      markdown.ToText(p.MarkdownContent),
+			Tags:         make(map[int64]string),
+			CommentsOpen: commentsGlobal && p.CommentsEnabled,
+		}
+
 		for _, t := range tagsByPost[p.ID] {
 			view.Tags[t.ID] = t.Name
 		}
@@ -1113,7 +1139,7 @@ func (s *Service) createFn(
 		return s.Posts.Create(r.Context(), postRepository.PostInsert{
 			AuthorID: claims.UserID, CategoryID: *req.CategoryID, Title: *req.Title,
 			Markdown: *req.Markdown, HTML: html, Slug: slugCandidate,
-			FeaturedImagePath: *imagePath, Status: req.Status,
+			FeaturedImagePath: *imagePath, Status: req.Status, CommentsEnabled: req.CommentsEnabled,
 		})
 	}
 }
@@ -1136,4 +1162,21 @@ func parseStatusQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 
 	return status, true
+}
+
+// commentsGloballyEnabled reads the settings-table comments kill-switch - one indexed point read per request.
+// A nil Settings repo (tests that don't wire settings) or a read error counts as enabled:
+// comments_open is display-only, and the comments create handler re-checks the switch authoritatively before any write.
+func (s *Service) commentsGloballyEnabled(r *http.Request) bool {
+	if s.Settings == nil {
+		return true
+	}
+
+	enabled, err := s.Settings.CommentsEnabled(r.Context())
+	if err != nil {
+		s.Log.Error("read comments kill-switch", "err", err)
+		return true
+	}
+
+	return enabled
 }

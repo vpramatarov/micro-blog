@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vpramatarov/micro-blog/internal/api/repository"
+	"github.com/vpramatarov/micro-blog/internal/api/repository/comments"
 	"github.com/vpramatarov/micro-blog/internal/slug"
 )
 
@@ -26,8 +27,9 @@ const POSTS_SELECT_COLUMS string = `
 	p.html_content,
 	p.created_at,
 	COALESCE(p.featured_image_path, ''),
-	p.status
-`
+	p.status,
+	p.comments_enabled,
+	(SELECT COUNT(*) FROM ` + comments.DB_TABLE + ` cm WHERE cm.post_id = p.id)`
 
 const (
 	PostStatusDraft     string = "draft"
@@ -58,6 +60,8 @@ type Post struct {
 	CreatedAt         time.Time `json:"created_at"`
 	FeaturedImagePath string    `json:"featured_image_path,omitempty"`
 	Status            string    `json:"status"`
+	CommentsEnabled   bool      `json:"comments_enabled"`
+	CommentCount      int       `json:"comment_count"` // CommentCount counts ALL comments including replies. NOT the same as the comments list endpoint's `total`, which counts top-level rows only.
 }
 
 // PostInsert carries the fields CreatePost writes.
@@ -72,9 +76,10 @@ type PostInsert struct {
 	Slug              string
 	FeaturedImagePath string
 	Status            string
+	CommentsEnabled   *bool
 }
 
-// PostUpdate carries the fields UpdatePost rewrites. category_id and slug always come from the handler — there is no partial-update mode.
+// PostUpdate carries the fields UpdatePost rewrites. category_id and slug always come from the handler - there is no partial-update mode.
 // The handler computes FeaturedImagePath as one of: empty (clear), the existing path (keep), or the new path (replace).
 type PostUpdate struct {
 	CategoryID        int64
@@ -84,6 +89,7 @@ type PostUpdate struct {
 	Slug              string
 	FeaturedImagePath string
 	Status            string
+	CommentsEnabled   bool
 }
 
 type Repo struct {
@@ -117,6 +123,8 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 		&post.CreatedAt,
 		&post.FeaturedImagePath,
 		&post.Status,
+		&post.CommentsEnabled,
+		&post.CommentCount,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -130,7 +138,7 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*Post, error) {
 	return &post, nil
 }
 
-// GetBySlug is the read path behind GET /posts/{slug}. Public — the slug is taken from the URL and looked up directly.
+// GetBySlug is the read path behind GET /posts/{slug}. Public - the slug is taken from the URL and looked up directly.
 func (r *Repo) GetBySlug(ctx context.Context, slugStr string) (*Post, error) {
 	q := fmt.Sprintf(`
 		SELECT %s FROM %s AS p
@@ -152,6 +160,8 @@ func (r *Repo) GetBySlug(ctx context.Context, slugStr string) (*Post, error) {
 		&p.CreatedAt,
 		&p.FeaturedImagePath,
 		&p.Status,
+		&p.CommentsEnabled,
+		&p.CommentCount,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPostNotFound
@@ -182,11 +192,16 @@ func (r *Repo) Create(ctx context.Context, p PostInsert) (int64, error) {
 		p.Status = PostStatusDraft
 	}
 
+	commentsEnabled := true
+	if p.CommentsEnabled != nil {
+		commentsEnabled = *p.CommentsEnabled
+	}
+
 	q := fmt.Sprintf(`
-		INSERT INTO %s (author_id, category_id, title, slug, markdown_content, html_content, featured_image_path, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+		INSERT INTO %s (author_id, category_id, title, slug, markdown_content, html_content, featured_image_path, status, comments_enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		DB_TABLE)
-	res, err := r.db.ExecContext(ctx, q, p.AuthorID, p.CategoryID, p.Title, p.Slug, p.Markdown, p.HTML, repository.NullableString(p.FeaturedImagePath), p.Status)
+	res, err := r.db.ExecContext(ctx, q, p.AuthorID, p.CategoryID, p.Title, p.Slug, p.Markdown, p.HTML, repository.NullableString(p.FeaturedImagePath), p.Status, commentsEnabled)
 	if err != nil {
 		if repository.IsSlugUniqueViolation(err, "posts.slug") {
 			return 0, ErrPostDuplicateSlug
@@ -204,7 +219,7 @@ func (r *Repo) Create(ctx context.Context, p PostInsert) (int64, error) {
 }
 
 func (r *Repo) Update(ctx context.Context, id int64, post PostUpdate) error {
-	// Pre-check existence — SQLite's RowsAffected on UPDATE counts only rows
+	// Pre-check existence - SQLite's RowsAffected on UPDATE counts only rows
 	// that actually changed, so a no-op update on an existing row reports 0
 	// and would be indistinguishable from a missing row. Same pattern as users.UpdateUser.
 	if _, err := r.GetByID(ctx, id); err != nil {
@@ -212,11 +227,11 @@ func (r *Repo) Update(ctx context.Context, id int64, post PostUpdate) error {
 	}
 
 	updateQ := fmt.Sprintf(`
-		UPDATE %s SET category_id = ?, title = ?, slug = ?, markdown_content = ?, html_content = ?, featured_image_path = ?, status = ?
+		UPDATE %s SET category_id = ?, title = ?, slug = ?, markdown_content = ?, html_content = ?, featured_image_path = ?, status = ?, comments_enabled = ?
 		WHERE id = ?`,
 		DB_TABLE)
 	_, err := r.db.ExecContext(
-		ctx, updateQ, post.CategoryID, post.Title, post.Slug, post.Markdown, post.HTML, repository.NullableString(post.FeaturedImagePath), post.Status, id,
+		ctx, updateQ, post.CategoryID, post.Title, post.Slug, post.Markdown, post.HTML, repository.NullableString(post.FeaturedImagePath), post.Status, post.CommentsEnabled, id,
 	)
 	if err != nil {
 		if repository.IsSlugUniqueViolation(err, "posts.slug") {
@@ -282,11 +297,10 @@ func (r *Repo) CountByAuthor(ctx context.Context, authorID int64, status string)
 
 func (r *Repo) List(ctx context.Context, status string, limit, offset int) ([]Post, error) {
 	args := []any{}
-	q := fmt.Sprintf(`
-		SELECT %s FROM %s AS p
-		INNER JOIN users AS u ON u.id = p.author_id
-		INNER JOIN categories AS c ON c.id = p.category_id`,
-		POSTS_SELECT_COLUMS, DB_TABLE)
+	q := fmt.Sprintf(
+		`SELECT %s FROM %s AS p INNER JOIN users AS u ON u.id = p.author_id INNER JOIN categories AS c ON c.id = p.category_id`,
+		POSTS_SELECT_COLUMS, DB_TABLE,
+	)
 
 	if status != "" {
 		q += ` WHERE p.status = ? `
@@ -413,10 +427,10 @@ func (r *Repo) CountByTagID(ctx context.Context, tagID, authorID int64, status s
 }
 
 // GenerateSlug returns either `base` itself or the smallest `base-N` (N≥2) that does not already exist in the posts table.
-// `excludePostID` lets an UPDATE keep its own slug — pass 0 from CreatePost.
+// `excludePostID` lets an UPDATE keep its own slug - pass 0 from CreatePost.
 //
 // The query reads every slug in the {base, base-%} family in one round-trip, so collision resolution is O(1) DB hits regardless of how many siblings already exist.
-// A concurrent writer can still race us between the SELECT and the INSERT — the UNIQUE index catches that and the handler retries.
+// A concurrent writer can still race us between the SELECT and the INSERT - the UNIQUE index catches that and the handler retries.
 func (r *Repo) GenerateSlug(ctx context.Context, base string, excludePostID int64) (string, error) {
 	return r.slugFinder.Generate(ctx, base, excludePostID)
 }
@@ -492,6 +506,8 @@ func (r *Repo) query(ctx context.Context, sqlQuery string, args ...any) ([]Post,
 			&post.CreatedAt,
 			&post.FeaturedImagePath,
 			&post.Status,
+			&post.CommentsEnabled,
+			&post.CommentCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
