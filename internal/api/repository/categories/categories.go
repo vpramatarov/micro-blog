@@ -108,8 +108,8 @@ func (r *Repo) GetByIDs(ctx context.Context, ids []int64) (map[int64]Category, e
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	for i := range ids {
+		args[i] = ids[i]
 	}
 
 	q := fmt.Sprintf(`SELECT %s FROM %s WHERE id IN (%s)`, CATEGORIES_COLUMNS, DB_TABLE, placeholders)

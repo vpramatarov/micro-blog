@@ -109,7 +109,8 @@ func (r *Repo) CountTopLevel(ctx context.Context, postID int64) (int, error) {
 // Replies are oldest-first within each parent.
 func (r *Repo) ListReplies(ctx context.Context, parentIDs []int64) (map[int64][]Comment, error) {
 	out := make(map[int64][]Comment, len(parentIDs))
-	for _, id := range parentIDs {
+	for i := range parentIDs {
+		id := parentIDs[i]
 		out[id] = nil
 	}
 
@@ -120,8 +121,8 @@ func (r *Repo) ListReplies(ctx context.Context, parentIDs []int64) (map[int64][]
 	placeholders := strings.Repeat("?,", len(parentIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(parentIDs))
-	for i, id := range parentIDs {
-		args[i] = id
+	for i := range parentIDs {
+		args[i] = parentIDs[i]
 	}
 
 	q := `SELECT ` + commentColumns + ` ` + commentJoins +

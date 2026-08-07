@@ -183,8 +183,8 @@ func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	for i := range ids {
+		args[i] = ids[i]
 	}
 
 	q := fmt.Sprintf(`SELECT id FROM %s WHERE id IN (%s)`, DB_TABLE, placeholders)
@@ -209,7 +209,8 @@ func (r *Repo) MissingIDs(ctx context.Context, ids []int64) ([]int64, error) {
 	}
 
 	var missing []int64
-	for _, id := range ids {
+	for i := range ids {
+		id := ids[i]
 		if _, ok := present[id]; !ok {
 			missing = append(missing, id)
 		}
@@ -257,8 +258,8 @@ func (r *Repo) ListForPost(ctx context.Context, postID int64) ([]Tag, error) {
 // Used by the posts handler to hydrate list responses without an N+1.
 func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]Tag, error) {
 	out := make(map[int64][]Tag, len(postIDs))
-	for _, id := range postIDs {
-		out[id] = nil
+	for i := range postIDs {
+		out[postIDs[i]] = nil
 	}
 
 	if len(postIDs) == 0 {
@@ -268,8 +269,8 @@ func (r *Repo) ListForPosts(ctx context.Context, postIDs []int64) (map[int64][]T
 	placeholders := strings.Repeat("?,", len(postIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(postIDs))
-	for i, id := range postIDs {
-		args[i] = id
+	for i := range postIDs {
+		args[i] = postIDs[i]
 	}
 
 	q := fmt.Sprintf(`
@@ -326,7 +327,8 @@ func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64)
 		count := len(tagIDs)
 		seen := make(map[int64]struct{}, count)
 		unique := make([]int64, 0, count)
-		for _, tagID := range tagIDs {
+		for i := range tagIDs {
+			tagID := tagIDs[i]
 			if _, duplicate := seen[tagID]; duplicate {
 				continue
 			}
@@ -340,7 +342,8 @@ func (r *Repo) ReplaceForPost(ctx context.Context, postID int64, tagIDs []int64)
 		if uniqueCount > 0 {
 			placeholders := strings.TrimSuffix(strings.Repeat("(?, ?),", uniqueCount), ",")
 			args := make([]any, 0, 2*uniqueCount)
-			for _, tagID := range unique {
+			for i := range unique {
+				tagID := unique[i]
 				args = append(args, postID, tagID)
 			}
 

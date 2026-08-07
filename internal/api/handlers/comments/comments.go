@@ -214,8 +214,8 @@ func (s *Service) ListBySlug(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parentIDs := make([]int64, len(topLevel))
-	for i, c := range topLevel {
-		parentIDs[i] = c.ID
+	for i := range topLevel {
+		parentIDs[i] = topLevel[i].ID
 	}
 
 	repliesByParent, err := s.Comments.ListReplies(r.Context(), parentIDs)
@@ -226,7 +226,8 @@ func (s *Service) ListBySlug(w http.ResponseWriter, r *http.Request) {
 	}
 
 	items := make([]CommentResponse, len(topLevel))
-	for i, c := range topLevel {
+	for i := range topLevel {
+		c := topLevel[i]
 		replies := repliesByParent[c.ID]
 		if replies == nil {
 			replies = make([]commentsrepo.Comment, 0)

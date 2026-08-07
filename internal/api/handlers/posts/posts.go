@@ -924,8 +924,8 @@ func (s *Service) hydrateOne(r *http.Request, post *postRepository.Post) (*PostR
 func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]PostResponse, error) {
 	items := make([]PostResponse, len(posts))
 	postIDs := make([]int64, len(posts))
-	for i, p := range posts {
-		postIDs[i] = p.ID
+	for i := range posts {
+		postIDs[i] = posts[i].ID
 
 		if s.Encoder != nil {
 			if code, err := s.Encoder.Encode(posts[i].ID); err == nil {
@@ -941,7 +941,8 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 	}
 
 	commentsGlobal := s.commentsGloballyEnabled(r)
-	for i, p := range posts {
+	for i := range posts {
+		p := posts[i]
 		view := PostResponse{
 			Post:         p,
 			Excerpt:      markdown.ToText(p.MarkdownContent),
@@ -949,7 +950,8 @@ func (s *Service) hydrateMany(r *http.Request, posts []postRepository.Post) ([]P
 			CommentsOpen: commentsGlobal && p.CommentsEnabled,
 		}
 
-		for _, t := range tagsByPost[p.ID] {
+		for i := range tagsByPost[p.ID] {
+			t := tagsByPost[p.ID][i]
 			view.Tags[t.ID] = t.Name
 		}
 
