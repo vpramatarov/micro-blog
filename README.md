@@ -234,6 +234,8 @@ The `internal/api/{handlers,middleware,repository}` trees are split by feature (
 │   │   │   ├── posts/                    # public reads (incl. /posts/{slug}, /p/{code}) + /admin/posts CRUD
 │   │   │   ├── shortlinks/               # /api/shortlinks CRUD + public /s/{code} resolve
 │   │   │   ├── categories/               # public GET /categories + admin/editor CRUD
+│   │   │   ├── comments/                 # public reads + admin
+│   │   │   ├── settings/                 # Admin/Editor runtime settings (global comments kill-switch)
 │   │   │   ├── tags/                     # public GET /tags + admin/editor CRUD
 │   │   │   ├── docs/                     # /openapi.{yaml,json} + Swagger UI at /docs
 │   │   │   ├── uploads/                  # GET /uploads/* - static featured-image serving
@@ -246,6 +248,8 @@ The `internal/api/{handlers,middleware,repository}` trees are split by feature (
 │   │   ├── repository/
 │   │   │   ├── users/                    # User, UserUpdate, Repo, ErrUserNotFound/Duplicate
 │   │   │   ├── posts/                    # Post, Repo, ErrPostNotFound, FindAvailableSlug (delegates to slug.Finder)
+│   │   │   ├── comments/                 # Comments, Repo
+│   │   │   ├── settings/                 # Settings, Repo
 │   │   │   ├── shortlinks/               # ShortLink, Repo, ErrShortLinkNotFound
 │   │   │   ├── tokens/                   # refresh-token Repo (with lazy purge), ErrRefreshTokenNotFound
 │   │   │   ├── rbac/                     # RoleExists, GetRolePermissionScope
@@ -287,12 +291,14 @@ The full route map with request/response shapes is in `api/openapi.yaml` - use `
 
 | Group | Routes | Auth |
 |---|---|---|
-| Public | `GET /`, `GET /posts`, `GET /posts/{slug}`, `GET /p/{code}`, `GET /s/{code}`, `GET /categories`, `GET /categories/{slug}`, `GET /tags`, `GET /tags/{slug}` | none |
+| Public | `GET /`, `GET /posts`, `GET /posts/{slug}`, `GET /p/{code}`, `GET /s/{code}`, `GET /categories`, `GET /categories/{slug}`, `GET /tags`, `GET /tags/{slug}`, `GET /posts/{slug}/comments` | none |
 | Docs | `GET /openapi.{yaml,json}`, `GET /docs` | none |
 | Auth | `POST /auth/{register,login,refresh,logout}` | refresh + logout need cookie |
 | Profile | `GET /api/me`, `PUT /api/me` | any authenticated role |
 | Shortlinks | `GET /api/shortlinks` (role-filtered list); `POST /api/shortlinks`, `PUT /api/shortlinks/{id}`, `DELETE /api/shortlinks/{id}` (bouncer-gated) | bearer |
 | Posts | `GET /admin/posts`, `GET /admin/categories/{slug}`, `GET /admin/tags/{slug}` (role-filtered lists); `POST /admin/posts`, `PUT /admin/posts/{id}`, `DELETE /admin/posts/{id}` (bouncer-gated) | bearer |
+| Comments | `POST /api/posts/{id}/comments`, `DELETE /api/comments/{id}` | any authenticated role (commenting  must be enabled) |
+| Settings | `GET /admin/settings/comments`, `PUT /admin/settings/comments` | bearer, Admin or Editor |
 | Categories | `POST /admin/categories`, `PUT /admin/categories/{id}`, `DELETE /admin/categories/{id}` | bearer, Admin or Editor |
 | Tags | `POST /admin/tags`, `PUT /admin/tags/{id}`, `DELETE /admin/tags/{id}` | bearer, Admin or Editor |
 | Admin posts | `GET /admin/post/{id}` (numeric-id read) | bearer, Admin only |
