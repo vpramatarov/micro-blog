@@ -109,7 +109,7 @@ func (r *Repo) List(ctx context.Context, limit, offset int) ([]Tag, error) {
 	out := make([]Tag, 0)
 	for rows.Next() {
 		var t Tag
-		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Slug, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
 
