@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -69,7 +69,7 @@ type tokenResponse struct {
 
 func (s *Service) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}
@@ -118,7 +118,7 @@ func (s *Service) Register(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}

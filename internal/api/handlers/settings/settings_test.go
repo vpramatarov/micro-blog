@@ -2,7 +2,7 @@ package settings_test
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"

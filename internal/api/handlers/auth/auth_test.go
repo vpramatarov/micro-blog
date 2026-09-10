@@ -2,7 +2,8 @@ package auth_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -127,7 +128,7 @@ func TestRegisterLoginRefreshLogoutFlow(t *testing.T) {
 	var loginBody struct {
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&loginBody); err != nil {
+	if err := json.UnmarshalRead(res.Body, &loginBody); err != nil {
 		t.Fatalf("decode login: %v", err)
 	}
 
@@ -241,7 +242,7 @@ func TestRegisterMalformedBody(t *testing.T) {
 func TestRegisterValidationEnvelope(t *testing.T) {
 	srv := newTestServer(t)
 	body := `{"username":"ab","email":"not-an-email","password":"short"}`
-	rec := postJSON(t, srv, "/auth/register", json.RawMessage(body))
+	rec := postJSON(t, srv, "/auth/register", jsontext.Value(body))
 	if rec.StatusCode != http.StatusBadRequest {
 		rec.Body.Close()
 		t.Fatalf("status: got %d, want 400", rec.StatusCode)
@@ -256,7 +257,7 @@ func TestRegisterValidationEnvelope(t *testing.T) {
 
 func TestRegisterValidationMissingFields(t *testing.T) {
 	srv := newTestServer(t)
-	rec := postJSON(t, srv, "/auth/register", json.RawMessage(`{}`))
+	rec := postJSON(t, srv, "/auth/register", jsontext.Value(`{}`))
 	if rec.StatusCode != http.StatusBadRequest {
 		rec.Body.Close()
 		t.Fatalf("status: got %d, want 400", rec.StatusCode)
@@ -316,7 +317,7 @@ func TestLogoutRevokesAccessToken(t *testing.T) {
 	var login struct {
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&login); err != nil {
+	if err := json.UnmarshalRead(res.Body, &login); err != nil {
 		t.Fatalf("decode login: %v", err)
 	}
 

@@ -1,7 +1,8 @@
 package router_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -48,9 +49,8 @@ func buildRouter() *chi.Mux {
 	)
 }
 
-// TestOpenAPISpecCoversEveryRoute is a drift guard: every (method, pattern)
-// registered in the chi tree must appear in api/openapi.yaml. Adding a new
-// route without a matching spec entry fails this test, which is the whole reason hand-writing the spec is viable.
+// TestOpenAPISpecCoversEveryRoute is a drift guard: every (method, pattern) registered in the chi tree must appear in api/openapi.yaml.
+// Adding a new route without a matching spec entry fails this test, which is the whole reason hand-writing the spec is viable.
 //
 // The reverse direction (spec entries with no matching route) is intentionally
 // not asserted - the spec can legitimately describe deprecated paths during a transition.
@@ -97,13 +97,11 @@ func TestOpenAPISpecCoversEveryRoute(t *testing.T) {
 	}
 }
 
-// TestOpenAPIOperationsHaveValidRoles asserts every operation in the spec is
-// annotated with x-roles and that every value is a known audience. Without
-// the annotation the role-filter falls open (anyone sees the op), so this
-// test prevents accidental "default visible to everyone" regressions.
+// TestOpenAPIOperationsHaveValidRoles asserts every operation in the spec is annotated with x-roles and that every value is a known audience.
+// Without the annotation the role-filter falls open (anyone sees the op), so this test prevents accidental "default visible to everyone" regressions.
 func TestOpenAPIOperationsHaveValidRoles(t *testing.T) {
 	var doc struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
+		Paths map[string]map[string]jsontext.Value `json:"paths"`
 	}
 	if err := yaml.Unmarshal(api.Spec, &doc); err != nil {
 		t.Fatalf("parse embedded openapi.yaml: %v", err)

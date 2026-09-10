@@ -2,7 +2,7 @@
 # Development image: live-reload via air. Source is bind-mounted by
 # docker-compose.override.yml, so nothing is COPYed in - the container compiles
 # whatever is on the host and rebuilds on save.
-FROM golang:1.26-alpine
+FROM golang:1.27-alpine
 
 # git is handy for `go` module operations; air is the file-watcher/rebuilder.
 RUN apk add --no-cache git && \

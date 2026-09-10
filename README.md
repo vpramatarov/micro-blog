@@ -5,12 +5,12 @@ A Go HTTP API for a **markdown micro-blog with a built-in URL shortener**, secur
 
 ## Tech stack & dependencies
 
-**Go 1.26** - module path `github.com/vpramatarov/micro-blog`.
+**Go 1.27** - module path `github.com/vpramatarov/micro-blog`.
 
 ## Quick start
 
 ```powershell
-# 1. Install Go 1.26+ and clone the repo.
+# 1. Install Go 1.27+ and clone the repo.
 git clone https://github.com/vpramatarov/micro-blog
 cd micro-blog
 
@@ -51,7 +51,7 @@ let Go serve a pre-built SPA, or run the Vite dev server for hot-module reload
 
 | Tool | Needed for |
 |---|---|
-| **Go 1.26+** | Building / running the API locally (the no-Docker path). |
+| **Go 1.27+** | Building / running the API locally (the no-Docker path). |
 | **Node 22+ & npm** | Building or developing the React frontend locally. |
 | **Docker Desktop (Compose v2)** | The Docker path - nothing else required; the image builds both Go and the frontend for you. |
 

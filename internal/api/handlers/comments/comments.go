@@ -1,18 +1,16 @@
-// Package comments implements POST /api/posts/{id}/comments (create),
+// Package comments implements:
+// POST /api/posts/{id}/comments (create),
 // DELETE /api/comments/{id} (moderation delete), and the public
 // GET /posts/{slug}/comments (paginated list).
 //
-// None of these routes go through the Bouncer matrix. Create is open to
-// every authenticated role, so a permission lookup could never deny; delete
-// is granted to the parent post's author (an ownership relation one table
-// removed from the resource) plus the flat Editor/Admin override, which the
-// single-OwnerKind own/all/none scope model cannot express. Authorization is
-// therefore handler-level - same precedent as /api/me and the
-// RequireEditorOrAdmin groups.
+// None of these routes go through the Bouncer matrix. Create is open to every authenticated role, so a permission lookup could never deny;
+// delete is granted to the parent post's author (an ownership relation one table removed from the resource)
+// plus the flat Editor/Admin override, which the single-OwnerKind own/all/none scope model cannot express.
+// Authorization is therefore handler-level - same precedent as /api/me and the RequireEditorOrAdmin groups.
 package comments
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -82,7 +80,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req commentCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}

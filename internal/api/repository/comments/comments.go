@@ -19,13 +19,13 @@ var ErrCommentNotFound = errors.New("comment not found")
 
 // Comment is both the DB row and the JSON view.
 // AuthorName comes from the INNER JOIN to users in every read. ParentID is 0 for top-level comments - the nullable column is COALESCE'd so the struct holds a int64
-// (mirrors the posts repo's featured_image_path) and omitempty drops it from top-level JSON.
+// (mirrors the posts repo's featured_image_path) and omitzero drops it from top-level JSON.
 type Comment struct {
 	ID         int64     `json:"id"`
 	PostID     int64     `json:"post_id"`
 	UserID     int64     `json:"user_id"`
 	AuthorName string    `json:"author_name"`
-	ParentID   int64     `json:"parent_id,omitempty"`
+	ParentID   int64     `json:"parent_id,omitzero"`
 	Content    string    `json:"content"`
 	CreatedAt  time.Time `json:"created_at"`
 }

@@ -19,7 +19,7 @@ func TestWriteJSON(t *testing.T) {
 			name:     "empty struct",
 			status:   http.StatusOK,
 			payload:  struct{}{},
-			wantBody: "{}\n",
+			wantBody: "{}",
 		},
 		{
 			name:   "struct with field",
@@ -27,19 +27,19 @@ func TestWriteJSON(t *testing.T) {
 			payload: struct {
 				OK bool `json:"ok"`
 			}{OK: true},
-			wantBody: "{\"ok\":true}\n",
+			wantBody: "{\"ok\":true}",
 		},
 		{
 			name:     "nil payload",
 			status:   http.StatusOK,
 			payload:  nil,
-			wantBody: "null\n",
+			wantBody: "null",
 		},
 		{
 			name:     "slice payload",
 			status:   http.StatusAccepted,
 			payload:  []string{"a", "b"},
-			wantBody: "[\"a\",\"b\"]\n",
+			wantBody: "[\"a\",\"b\"]",
 		},
 	}
 

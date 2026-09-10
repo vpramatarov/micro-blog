@@ -2,7 +2,7 @@
 package shortlinks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -113,7 +113,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req shortLinkWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req shortLinkWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}

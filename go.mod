@@ -1,40 +1,37 @@
 module github.com/vpramatarov/micro-blog
 
-go 1.26.3
-
-require (
-	github.com/disintegration/imaging v1.6.2
-	github.com/go-chi/chi/v5 v5.3.0
-	github.com/joho/godotenv v1.5.1
-	github.com/pressly/goose/v3 v3.27.1
-	github.com/writeas/go-strip-markdown v2.0.1+incompatible
-	golang.org/x/crypto v0.50.0
-	golang.org/x/time v0.15.0
-	modernc.org/sqlite v1.50.0
-)
-
-require (
-	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8 // indirect
-)
+go 1.27.1
 
 require (
 	github.com/brianvoe/gofakeit/v7 v7.15.0
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/disintegration/imaging v1.6.2
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/joho/godotenv v1.5.1
+	github.com/pressly/goose/v3 v3.27.1
+	github.com/sqids/sqids-go v0.4.1
+	github.com/writeas/go-strip-markdown v2.0.1+incompatible
+	github.com/yuin/goldmark v1.8.2
+	golang.org/x/crypto v0.56.0
+	golang.org/x/time v0.15.0
+	modernc.org/sqlite v1.50.0
+	sigs.k8s.io/yaml v1.6.0
+)
+
+require (
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/sqids/sqids-go v0.4.1
-	github.com/yuin/goldmark v1.8.2
 	go.uber.org/multierr v1.11.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	modernc.org/libc v1.72.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	sigs.k8s.io/yaml v1.6.0
 )

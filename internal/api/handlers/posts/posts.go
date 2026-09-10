@@ -4,7 +4,7 @@
 package posts
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"mime/multipart"

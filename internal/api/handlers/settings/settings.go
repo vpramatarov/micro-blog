@@ -6,7 +6,7 @@
 package settings
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 
@@ -53,7 +53,7 @@ func (s *Service) GetCommentsSetting(w http.ResponseWriter, r *http.Request) {
 // again when the switch returns to enabled.
 func (s *Service) UpdateCommentsSetting(w http.ResponseWriter, r *http.Request) {
 	var req commentsSetting
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}

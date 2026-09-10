@@ -20,7 +20,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Build stage ------------------------------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 
 WORKDIR /src
 

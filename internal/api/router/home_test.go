@@ -24,7 +24,7 @@ func TestHome(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", got, "application/json")
 	}
 
-	if got := rec.Body.String(); got != "{}\n" {
-		t.Errorf("body = %q, want %q", got, "{}\n")
+	if got := rec.Body.String(); got != "{}" {
+		t.Errorf("body = %q, want %q", got, "{}")
 	}
 }

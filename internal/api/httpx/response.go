@@ -6,7 +6,7 @@
 package httpx
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,7 +27,7 @@ type errorBody struct {
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(v)
+	return json.MarshalWrite(w, v, json.Deterministic(true))
 }
 
 // WriteError emits the standard {error, message} envelope.

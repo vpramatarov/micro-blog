@@ -1,7 +1,7 @@
 package users
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -54,7 +54,7 @@ func (s *Service) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req meUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
 		return
 	}
